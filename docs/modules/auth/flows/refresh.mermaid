@@ -1,0 +1,33 @@
+graph TD
+    Start([Start: POST /auth/refresh])
+    Parse{Parse id.secret format?}
+    Reject400[Return 401 invalid_refresh]
+    Load[Repository.FindByID]
+    NotFound[Return 401 invalid_refresh]
+    HashCheck{Constant-time SHA256 match?}
+    BadHash[Return 401 invalid_refresh]
+    Usable{CheckUsable: not revoked AND not expired?}
+    Reject[Return 401 invalid_refresh]
+    LoadUser[Load user]
+    CanSignIn{User.CanSignInNow?}
+    LockRefresh[Revoke refresh row; return 403 account_unavailable]
+    Rotate[Revoke consumed refresh row]
+    Issue[Issue JWT access + new refresh row]
+    Resp200[Return 200 new token pair + user]
+    End([End: tokens rotated])
+
+    Start --> Parse
+    Parse -->|No| Reject400
+    Parse -->|Yes| Load
+    Load -->|missing| NotFound
+    Load -->|found| HashCheck
+    HashCheck -->|No| BadHash
+    HashCheck -->|Yes| Usable
+    Usable -->|No| Reject
+    Usable -->|Yes| LoadUser
+    LoadUser --> CanSignIn
+    CanSignIn -->|No| LockRefresh
+    CanSignIn -->|Yes| Rotate
+    Rotate --> Issue
+    Issue --> Resp200
+    Resp200 --> End

@@ -1,0 +1,25 @@
+graph TD
+    Start([Start: hiringintent.IntentConfirmed received])
+    Idem{Already processed?<br/>jobposting_processed_events check}
+    Skip[Skip — return success]
+    Read[IntentReader.ReadConfirmed tenantID, intentID]
+    Build[Build JDContent v1 from snapshot:<br/>title, summary, responsibilities, requirements]
+    Exists{Posting exists for tenant+intent?}
+    Return[Return existing posting]
+    Construct[NewJobPosting status=Draft]
+    Persist[Repository.Save in transaction +<br/>insert JobPostingCreated to outbox]
+    Mark[Mark event processed]
+    End([End: Draft posting ready for recruiter])
+
+    Start --> Idem
+    Idem -->|Yes| Skip
+    Idem -->|No| Read
+    Read --> Build
+    Build --> Exists
+    Exists -->|Yes| Return
+    Return --> Mark
+    Exists -->|No| Construct
+    Construct --> Persist
+    Persist --> Mark
+    Mark --> End
+    Skip --> End

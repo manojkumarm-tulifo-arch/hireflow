@@ -1,0 +1,41 @@
+graph TD
+    Start([Start: POST /auth/signin/request-otp])
+    ParseEmail{Email valid?}
+    Reject400[Return 400 invalid_input]
+    LookupUser[Find user by email across tenants]
+    Active{User exists AND CanSignInNow?}
+    Uniform[Return 202 sent: true, expires_at — UNIFORM regardless of existence]
+    GenOTP[OTPGenerator + Argon2 hash]
+    SaveSession[Repository.Save OTPSession]
+    Send[OTPSender.Send code]
+
+    Verify([POST /auth/signin/verify-otp])
+    LoadSession[Find latest OTPSession for email + SIGNIN]
+    LoadUser[Find user by email]
+    VerifyOTP{Verify hash + attempts + expiry}
+    Failed[user.RecordFailedAttempt; auto-lock at 5 fails; persist + return 401 invalid_otp]
+    SignIn[user.RecordSignIn — clears counter, sets lastSignedInAt, raises UserSignedIn]
+    SaveUser[Repository.Save user]
+    IssuePair[Issue JWT access + persist refresh row]
+    Resp200[Return 200 token pair + user]
+    End([End: client logged in])
+
+    Start --> ParseEmail
+    ParseEmail -->|No| Reject400
+    ParseEmail -->|Yes| LookupUser
+    LookupUser --> Active
+    Active -->|No| Uniform
+    Active -->|Yes| GenOTP
+    GenOTP --> SaveSession
+    SaveSession --> Send
+    Send --> Uniform
+
+    Verify --> LoadSession
+    LoadSession --> LoadUser
+    LoadUser --> VerifyOTP
+    VerifyOTP -->|reject| Failed
+    VerifyOTP -->|ok| SignIn
+    SignIn --> SaveUser
+    SaveUser --> IssuePair
+    IssuePair --> Resp200
+    Resp200 --> End

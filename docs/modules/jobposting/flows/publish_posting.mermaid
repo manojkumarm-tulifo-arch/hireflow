@@ -1,0 +1,31 @@
+graph TD
+    Start([Start: Recruiter clicks Publish])
+    Auth{JWT verified?<br/>tenant + recruiter claims present}
+    Reject401[Return 401]
+    ParseChannels{All channels valid?<br/>LINKEDIN, CAREER_PAGE, EMAIL, INTERNAL_DB}
+    Reject400[Return 400 invalid_input]
+    Load[Repository.FindByID]
+    NotFound[Return 404]
+    StateCheck{Status not terminal?}
+    Conflict[Return 409 invalid_state_transition]
+    NoChannels{Channels list non-empty?}
+    Reject422[Return 422 validation_failed]
+    Publish[posting.Publish channels:<br/>add new SourceTargets status=PENDING<br/>set status=Published]
+    Persist[Repository.Save in transaction +<br/>insert JobPostingPublished to outbox]
+    Resp[Return 200 with PostingDTO]
+    End([End: sourcing context will pick up event])
+
+    Start --> Auth
+    Auth -->|No| Reject401
+    Auth -->|Yes| ParseChannels
+    ParseChannels -->|No| Reject400
+    ParseChannels -->|Yes| Load
+    Load -->|missing| NotFound
+    Load -->|found| StateCheck
+    StateCheck -->|terminal| Conflict
+    StateCheck -->|active| NoChannels
+    NoChannels -->|empty| Reject422
+    NoChannels -->|non-empty| Publish
+    Publish --> Persist
+    Persist --> Resp
+    Resp --> End

@@ -1,0 +1,277 @@
+openapi: 3.0.3
+info:
+  title: hireflow — hiringintent v1
+  version: 1.0.0
+  description: |
+    Recruiter API for the hiringintent bounded context.
+    Captures, confirms, and lists hiring intents within a tenant.
+
+servers:
+  - url: http://localhost:8080/api/v1
+
+security:
+  - bearerAuth: []
+
+paths:
+  /intents:
+    get:
+      summary: List hiring intents for the tenant
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [DRAFTED, CONFIRMED, CANCELLED, CLOSED] }
+        - in: query
+          name: recruiter_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: q
+          description: Free-text search on role title (ILIKE).
+          schema: { type: string }
+        - in: query
+          name: sort
+          description: Result ordering. Defaults to NEWEST.
+          schema: { type: string, enum: [NEWEST, URGENT], default: NEWEST }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Page of intents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentListResponse'
+
+  /intents/summary:
+    get:
+      summary: Per-status counts for the tenant's intents
+      description: |
+        Returns the histogram of intents grouped by status, plus a total.
+        Used by the FE to render filter chips with counts on the list page.
+      responses:
+        '200':
+          description: Summary counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentSummaryResponse'
+
+    post:
+      summary: Draft a new hiring intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntentRequest'
+      responses:
+        '201':
+          description: Intent drafted
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /intents/{id}:
+    get:
+      summary: Get a single intent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Intent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /intents/{id}/confirm:
+    post:
+      summary: Confirm a drafted intent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Intent confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        HS256-signed access token issued by the auth context. Required claims:
+        tenant_id (UUID), recruiter_id (UUID). Optional: roles (string array).
+
+  schemas:
+    Skill:
+      type: object
+      required: [name, required]
+      properties:
+        name:     { type: string }
+        required: { type: boolean }
+
+    Budget:
+      type: object
+      required: [min_minor, max_minor, currency]
+      properties:
+        min_minor: { type: integer, format: int64 }
+        max_minor: { type: integer, format: int64 }
+        currency:  { type: string, minLength: 3, maxLength: 3 }
+
+    CreateIntentRequest:
+      type: object
+      required: [role_title, headcount, work_mode, priority]
+      properties:
+        role_title: { type: string }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/Skill' }
+        min_years: { type: integer, minimum: 0 }
+        max_years: { type: integer, minimum: 0 }
+        headcount: { type: integer, minimum: 1 }
+        locations:
+          type: array
+          items: { type: string }
+        work_mode: { type: string, enum: [ONSITE, REMOTE, HYBRID] }
+        priority:  { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        budget:    { $ref: '#/components/schemas/Budget' }
+
+    IntentSignal:
+      type: object
+      properties:
+        label: { type: string }
+        value: { type: string }
+        level: { type: string, enum: [LOW, MEDIUM, HIGH] }
+
+    TrustSignal:
+      type: object
+      properties:
+        label:    { type: string }
+        value:    { type: string }
+        required: { type: boolean }
+
+    Intent:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        tenant_id:    { type: string, format: uuid }
+        recruiter_id: { type: string, format: uuid }
+        role:
+          type: object
+          properties:
+            title:      { type: string }
+            skills:
+              type: array
+              items: { $ref: '#/components/schemas/Skill' }
+            experience:
+              type: object
+              properties:
+                min_years: { type: integer }
+                max_years: { type: integer }
+            headcount: { type: integer }
+            locations:
+              type: array
+              items: { type: string }
+            work_mode: { type: string }
+        priority: { type: string }
+        intent_signals:
+          type: array
+          items: { $ref: '#/components/schemas/IntentSignal' }
+        trust_signals:
+          type: array
+          items: { $ref: '#/components/schemas/TrustSignal' }
+        budget: { $ref: '#/components/schemas/Budget' }
+        status: { type: string }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+        confirmed_at: { type: string, format: date-time, nullable: true }
+        cancelled_at: { type: string, format: date-time, nullable: true }
+        cancel_reason: { type: string }
+
+    IntentResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:    { $ref: '#/components/schemas/Intent' }
+
+    IntentListResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Intent' }
+
+    StatusCounts:
+      type: object
+      required: [DRAFTED, CONFIRMED, CANCELLED, CLOSED, total]
+      properties:
+        DRAFTED:   { type: integer }
+        CONFIRMED: { type: integer }
+        CANCELLED: { type: integer }
+        CLOSED:    { type: integer }
+        total:     { type: integer }
+
+    IntentSummary:
+      type: object
+      required: [counts]
+      properties:
+        counts: { $ref: '#/components/schemas/StatusCounts' }
+
+    IntentSummaryResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:    { $ref: '#/components/schemas/IntentSummary' }
+
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code:    { type: string }
+            message: { type: string }
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Identity headers missing
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Intent not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Invalid state transition
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ValidationFailed:
+      description: Domain invariant violated
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

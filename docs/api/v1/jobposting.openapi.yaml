@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: hireflow — jobposting v1
+  version: 1.0.0
+  description: |
+    Recruiter API for the jobposting bounded context. Postings are *created*
+    by the IntentConfirmed cross-context consumer (not via HTTP). The HTTP
+    surface lets recruiters list, view, publish, and close postings.
+
+servers:
+  - url: http://localhost:8080/api/v1
+
+security:
+  - bearerAuth: []
+
+paths:
+  /postings:
+    get:
+      summary: List job postings for the tenant
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [DRAFT, PUBLISHED, CLOSED, ARCHIVED] }
+        - in: query
+          name: intent_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Page of postings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostingListResponse' }
+
+  /postings/{id}:
+    get:
+      summary: Get a single posting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Posting
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostingResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /postings/{id}/publish:
+    post:
+      summary: Publish (or re-publish) a posting to one or more channels
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channels]
+              properties:
+                channels:
+                  type: array
+                  items:
+                    type: string
+                    enum: [LINKEDIN, CAREER_PAGE, EMAIL, INTERNAL_DB]
+      responses:
+        '200':
+          description: Posting published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostingResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /postings/{id}/close:
+    post:
+      summary: Close a posting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Posting closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostingResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    JD:
+      type: object
+      properties:
+        title:   { type: string }
+        summary: { type: string }
+        responsibilities:
+          type: array
+          items: { type: string }
+        requirements:
+          type: array
+          items: { type: string }
+        version: { type: integer }
+
+    SourceTarget:
+      type: object
+      properties:
+        channel:     { type: string, enum: [LINKEDIN, CAREER_PAGE, EMAIL, INTERNAL_DB] }
+        status:      { type: string, enum: [PENDING, ACTIVE, FAILED, DISABLED] }
+        external_id: { type: string }
+        url:         { type: string }
+        last_sync:   { type: string, format: date-time }
+
+    Posting:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        tenant_id:    { type: string, format: uuid }
+        intent_id:    { type: string, format: uuid }
+        jd:           { $ref: '#/components/schemas/JD' }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceTarget' }
+        status:       { type: string }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+        published_at: { type: string, format: date-time, nullable: true }
+        closed_at:    { type: string, format: date-time, nullable: true }
+        close_reason: { type: string }
+
+    PostingResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:    { $ref: '#/components/schemas/Posting' }
+
+    PostingListResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Posting' }
+
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code:    { type: string }
+            message: { type: string }
+
+  responses:
+    NotFound:
+      description: Posting not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Invalid state transition
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ValidationFailed:
+      description: Domain invariant violated
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

@@ -1,0 +1,19 @@
+graph TD
+    Start([Start: Recruiter clicks Close])
+    Load[Repository.FindByID]
+    NotFound[Return 404]
+    StateCheck{Status not terminal?}
+    Conflict[Return 409]
+    Close[posting.Close reason:<br/>set status=Closed, closedAt=now]
+    Persist[Repository.Save in transaction +<br/>insert JobPostingClosed to outbox]
+    Resp[Return 200 with PostingDTO]
+    End([End: sourcing stops ingestion])
+
+    Start --> Load
+    Load -->|missing| NotFound
+    Load -->|found| StateCheck
+    StateCheck -->|terminal| Conflict
+    StateCheck -->|active| Close
+    Close --> Persist
+    Persist --> Resp
+    Resp --> End

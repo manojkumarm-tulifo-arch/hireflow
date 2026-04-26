@@ -1,0 +1,50 @@
+graph TD
+    Start([Start: POST /auth/signup/request-otp])
+    ParseEmail{Email valid?}
+    Reject400[Return 400 invalid_input]
+    ParseSlug{Tenant slug resolves?}
+    Reject404[Return 404 tenant_not_found]
+    Existing{Email already in any tenant?}
+    Reject409[Return 409 email_taken]
+    CreateUser[NewUser status=PendingVerification]
+    SaveUser[Repository.Save user + UserRegistered event]
+    GenOTP[OTPGenerator + Argon2 hash]
+    SaveSession[Repository.Save OTPSession; older un-verified deleted]
+    Send[OTPSender.Send code]
+    Resp202[Return 202 sent: true, expires_at]
+
+    Verify([POST /auth/signup/verify-otp])
+    LoadSession[Find latest OTPSession for email + SIGNUP]
+    NotFound[Return 401 invalid_credentials]
+    VerifyOTP{Verify hash + attempts + expiry}
+    Reject401[Return 401 invalid_otp]
+    LoadUser[Load user]
+    MarkActive[user.MarkVerified + RecordSignIn]
+    SaveUserVerified[Repository.Save + UserVerified, UserSignedIn events]
+    IssuePair[Issue JWT access + persist refresh row]
+    Resp200[Return 200 token pair + user]
+    End([End: client logged in])
+
+    Start --> ParseEmail
+    ParseEmail -->|No| Reject400
+    ParseEmail -->|Yes| ParseSlug
+    ParseSlug -->|No| Reject404
+    ParseSlug -->|Yes| Existing
+    Existing -->|Yes| Reject409
+    Existing -->|No| CreateUser
+    CreateUser --> SaveUser
+    SaveUser --> GenOTP
+    GenOTP --> SaveSession
+    SaveSession --> Send
+    Send --> Resp202
+
+    Verify --> LoadSession
+    LoadSession -->|missing| NotFound
+    LoadSession -->|found| VerifyOTP
+    VerifyOTP -->|reject| Reject401
+    VerifyOTP -->|ok| LoadUser
+    LoadUser --> MarkActive
+    MarkActive --> SaveUserVerified
+    SaveUserVerified --> IssuePair
+    IssuePair --> Resp200
+    Resp200 --> End

@@ -1,0 +1,26 @@
+graph TD
+    Start([Start: Recruiter describes role in chat])
+    Extract[AI extracts structured fields from text/voice/JD]
+    Validate{Required fields present?<br/>title, skills, headcount}
+    AskMore[Ask follow-up question in chat]
+    BuildVO[Build value objects:<br/>RoleSpec, ExperienceRange, Headcount]
+    InvariantCheck{Pass aggregate invariants?<br/>headcount>0, expMin<=expMax}
+    Reject[Return 422 with validation errors]
+    Construct[NewHiringIntent: status=Drafted]
+    Persist[Repository.Save in transaction]
+    Event[Publish IntentDrafted event via outbox]
+    Resp[Return 201 Created with IntentDTO]
+    End([End: Drafted intent ready for review])
+
+    Start --> Extract
+    Extract --> Validate
+    Validate -->|No| AskMore
+    AskMore --> Start
+    Validate -->|Yes| BuildVO
+    BuildVO --> InvariantCheck
+    InvariantCheck -->|No| Reject
+    InvariantCheck -->|Yes| Construct
+    Construct --> Persist
+    Persist --> Event
+    Event --> Resp
+    Resp --> End

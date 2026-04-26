@@ -1,0 +1,29 @@
+# Local-only Postgres for hireflow development.
+# Use this OR your local Homebrew Postgres — see developer.md.
+#
+# Port 5433 (not 5432) so it can coexist with a local Postgres install
+# without conflict; switch between them by changing DATABASE_URL.
+
+name: hireflow
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: hireflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hireflow
+      POSTGRES_PASSWORD: hireflow
+      POSTGRES_DB: hireflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - hireflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hireflow -d hireflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  hireflow-pgdata:

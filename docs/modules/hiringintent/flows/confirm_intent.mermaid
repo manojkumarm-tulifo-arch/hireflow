@@ -1,0 +1,29 @@
+graph TD
+    Start([Start: Recruiter clicks Confirm Intent])
+    Load[Repository.FindByID intentID, tenantID]
+    Found{Intent exists<br/>and owned by tenant?}
+    NotFound[Return 404]
+    Forbidden[Return 403 if tenant mismatch]
+    StateCheck{status == Drafted?}
+    BadState[Return 409 Conflict]
+    InvariantCheck{Confirm-time invariants?<br/>at least 1 skill, headcount>0}
+    Reject[Return 422]
+    Confirm[intent.Confirm: status=Confirmed]
+    Persist[Repository.Save in transaction]
+    Event[Publish IntentConfirmed event via outbox]
+    Resp[Return 200 OK with IntentDTO]
+    End([End: Confirmed — downstream may begin])
+
+    Start --> Load
+    Load --> Found
+    Found -->|No, missing| NotFound
+    Found -->|No, wrong tenant| Forbidden
+    Found -->|Yes| StateCheck
+    StateCheck -->|No| BadState
+    StateCheck -->|Yes| InvariantCheck
+    InvariantCheck -->|No| Reject
+    InvariantCheck -->|Yes| Confirm
+    Confirm --> Persist
+    Persist --> Event
+    Event --> Resp
+    Resp --> End

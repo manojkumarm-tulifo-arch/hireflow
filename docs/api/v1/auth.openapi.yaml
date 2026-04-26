@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: hireflow — auth v1
+  version: 1.0.0
+  description: |
+    Public auth endpoints. All return the standard envelope; on success
+    `data` carries the typed payload, on failure `error.code` is one of:
+    invalid_input, invalid_json, email_taken, tenant_not_found,
+    invalid_credentials, invalid_otp, account_unavailable, invalid_refresh.
+
+servers:
+  - url: http://localhost:8080/api/v1
+
+paths:
+  /auth/signup/request-otp:
+    post:
+      summary: Start signup — creates a PendingVerification user, sends an OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name, tenant_slug]
+              properties:
+                email:       { type: string, format: email }
+                name:        { type: string }
+                tenant_slug: { type: string, description: 'Pre-seeded tenant identifier' }
+      responses:
+        '202':
+          description: OTP issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OTPRequestResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/signup/verify-otp:
+    post:
+      summary: Verify the signup OTP — activates the user, returns tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code:  { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/signin/request-otp:
+    post:
+      summary: Start passwordless signin — sends an OTP if the user exists
+      description: |
+        Returns 202 regardless of whether the email exists, to defend against
+        email enumeration. The response shape is identical for both cases.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: OTP request acknowledged
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OTPRequestResponse' }
+
+  /auth/signin/verify-otp:
+    post:
+      summary: Verify the signin OTP — returns tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code:  { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      summary: Exchange a refresh token for a new pair (refresh rotates)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPairResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      summary: Revoke a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '204':
+          description: Revoked (idempotent — also returned for unknown tokens)
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        email:     { type: string, format: email }
+        name:      { type: string }
+        status:    { type: string, enum: [PENDING_VERIFICATION, ACTIVE, LOCKED, SUSPENDED] }
+        roles:
+          type: array
+          items: { type: string }
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:       { type: string, description: 'HS256 JWT — pass as Authorization: Bearer ...' }
+        access_expires_at:  { type: string, format: date-time }
+        refresh_token:      { type: string, description: 'Opaque <id>.<secret> string. Persist client-side.' }
+        refresh_expires_at: { type: string, format: date-time }
+        user:               { $ref: '#/components/schemas/User' }
+
+    TokenPairResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:    { $ref: '#/components/schemas/TokenPair' }
+
+    OTPRequestResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            sent:       { type: boolean }
+            expires_at: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code:    { type: string }
+            message: { type: string }
+
+  responses:
+    Conflict:
+      description: Resource conflict (e.g., email already registered)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Credentials/token rejected
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
