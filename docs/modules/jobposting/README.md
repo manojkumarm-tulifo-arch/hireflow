@@ -48,8 +48,11 @@ Draft → Published → (Closed | Archived)
 
 **Inbound** — subscribes to `hiringintent.IntentConfirmed`:
 - Consumer: `infrastructure/subscribers/IntentConfirmedConsumer`
-- Anti-corruption: `IntentReader` port defined locally — implementation in `cmd/api/main.go` adapts the hiringintent context's read API
+- Anti-corruption: `IntentReader` port at `infrastructure/subscribers/intent_confirmed.go`; production implementation at `infrastructure/clients/intent_reader.go` projects `hiringintent.IntentDTO → IntentSnapshot` and rejects non-CONFIRMED reads with `ErrIntentNotConfirmed`.
+- Wiring: `cmd/api/main.go` registers the consumer against `internal/shared/infrastructure/eventbus.InMemory` for the `hiringintent.IntentConfirmed` event name. Both contexts run an outbox dispatcher that publishes into the same bus.
 - Idempotent via `job_postings_tenant_intent_unique` and `jobposting_processed_events`
+
+**Outbound** — `JobPostingCreated`/`Published`/`Closed` events are written to `job_posting_outbox` and drained by this context's own dispatcher (`infrastructure/messaging/outbox_dispatcher.go`). No subscribers yet — the dispatcher exists for parity and future-proofing.
 
 ## Flows
 

@@ -5,4 +5,5 @@ export const intentApi = {
     get: (id) => request(`/api/v1/intents/${id}`),
     create: (body) => request('/api/v1/intents', { method: 'POST', body }),
     confirm: (id) => request(`/api/v1/intents/${id}/confirm`, { method: 'POST' }),
+    extract: (body) => request('/api/v1/intents/extract', { method: 'POST', body }),
 };

@@ -21,6 +21,9 @@ type intentRow struct {
 	intentSignals []byte
 	trustSignals  []byte
 	budget        []byte // nullable
+	reason        string
+	team          string
+	reportsTo     string
 	status        string
 	createdAt     time.Time
 	updatedAt     time.Time
@@ -122,6 +125,9 @@ func serialize(h *entities.HiringIntent) (intentRow, error) {
 		intentSignals: intentSigBytes,
 		trustSignals:  trustSigBytes,
 		budget:        budgetBytes,
+		reason:        h.Reason(),
+		team:          h.Team(),
+		reportsTo:     h.ReportsTo(),
 		status:        string(h.Status()),
 		createdAt:     h.CreatedAt(),
 		updatedAt:     h.UpdatedAt(),
@@ -225,6 +231,7 @@ func deserialize(row intentRow) (*entities.HiringIntent, error) {
 	return entities.HydrateHiringIntent(
 		id, tenantID, recruiterID,
 		role, priority, intentSigs, trustSigs, budget,
+		entities.HydrateContext{Reason: row.reason, Team: row.team, ReportsTo: row.reportsTo},
 		status, row.createdAt, row.updatedAt, row.confirmedAt, row.cancelledAt, row.cancelReason,
 	), nil
 }

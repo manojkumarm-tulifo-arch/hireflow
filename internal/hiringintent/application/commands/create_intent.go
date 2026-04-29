@@ -28,6 +28,9 @@ type CreateIntentInput struct {
 	WorkMode    string
 	Priority    string
 	Budget      *BudgetInput
+	Reason      string
+	Team        string
+	ReportsTo   string
 }
 
 // SkillInput is the input shape for a skill.
@@ -107,6 +110,15 @@ func (h *CreateIntentHandler) Handle(ctx context.Context, in CreateIntentInput) 
 		if err := intent.SetBudget(budget); err != nil {
 			return dto.IntentDTO{}, fmt.Errorf("create intent: %w", err)
 		}
+	}
+	if err := intent.SetReason(in.Reason); err != nil {
+		return dto.IntentDTO{}, fmt.Errorf("create intent: %w", err)
+	}
+	if err := intent.SetTeam(in.Team); err != nil {
+		return dto.IntentDTO{}, fmt.Errorf("create intent: %w", err)
+	}
+	if err := intent.SetReportsTo(in.ReportsTo); err != nil {
+		return dto.IntentDTO{}, fmt.Errorf("create intent: %w", err)
 	}
 
 	if err := h.repo.Save(ctx, intent); err != nil {

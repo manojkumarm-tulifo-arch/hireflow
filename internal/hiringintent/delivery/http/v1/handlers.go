@@ -10,9 +10,11 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hustle/hireflow/internal/hiringintent/application/commands"
+	"github.com/hustle/hireflow/internal/hiringintent/application/dto"
 	"github.com/hustle/hireflow/internal/hiringintent/application/queries"
 	"github.com/hustle/hireflow/internal/hiringintent/domain/entities"
 	"github.com/hustle/hireflow/internal/hiringintent/domain/repositories"
+	"github.com/hustle/hireflow/internal/hiringintent/domain/services"
 	"github.com/hustle/hireflow/internal/hiringintent/domain/valueobjects"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
@@ -22,6 +24,7 @@ import (
 type IntentHandler struct {
 	create  *commands.CreateIntentHandler
 	confirm *commands.ConfirmIntentHandler
+	extract *commands.ExtractIntentHandler
 	get     *queries.GetIntentHandler
 	list    *queries.ListIntentsHandler
 	summary *queries.IntentSummaryHandler
@@ -32,12 +35,13 @@ type IntentHandler struct {
 func NewIntentHandler(
 	create *commands.CreateIntentHandler,
 	confirm *commands.ConfirmIntentHandler,
+	extract *commands.ExtractIntentHandler,
 	get *queries.GetIntentHandler,
 	list *queries.ListIntentsHandler,
 	summary *queries.IntentSummaryHandler,
 	logger zerolog.Logger,
 ) *IntentHandler {
-	return &IntentHandler{create: create, confirm: confirm, get: get, list: list, summary: summary, logger: logger}
+	return &IntentHandler{create: create, confirm: confirm, extract: extract, get: get, list: list, summary: summary, logger: logger}
 }
 
 // CreateIntent handles POST /intents.
@@ -68,6 +72,9 @@ func (h *IntentHandler) CreateIntent(w http.ResponseWriter, r *http.Request) {
 		Locations:   req.Locations,
 		WorkMode:    req.WorkMode,
 		Priority:    req.Priority,
+		Reason:      req.Reason,
+		Team:        req.Team,
+		ReportsTo:   req.ReportsTo,
 	}
 	if req.Budget != nil {
 		in.Budget = &commands.BudgetInput{MinMinor: req.Budget.MinMinor, MaxMinor: req.Budget.MaxMinor, Currency: req.Budget.Currency}
@@ -141,6 +148,40 @@ func (h *IntentHandler) ListIntents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Envelope{Success: true, Data: out})
 }
 
+// ExtractIntent handles POST /intents/extract — runs one LLM extraction
+// turn on a free-text recruiter message. Read-only relative to the domain;
+// the recruiter still POSTs /intents to commit the resulting draft.
+func (h *IntentHandler) ExtractIntent(w http.ResponseWriter, r *http.Request) {
+	tenantID, recruiterID, ok := h.requireIdentity(w, r)
+	if !ok {
+		return
+	}
+
+	var req ExtractIntentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+		return
+	}
+
+	in := dto.ExtractInput{
+		TenantID:    tenantID,
+		RecruiterID: recruiterID,
+		Messages:    make([]dto.ChatMessage, len(req.Messages)),
+		Draft:       req.Draft.toPatch(),
+		UserMessage: req.UserMessage,
+	}
+	for i, m := range req.Messages {
+		in.Messages[i] = dto.ChatMessage{Role: m.Role, Text: m.Text}
+	}
+
+	out, err := h.extract.Handle(r.Context(), in)
+	if err != nil {
+		h.respondExtractError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, Envelope{Success: true, Data: out})
+}
+
 // IntentSummary handles GET /intents/summary.
 func (h *IntentHandler) IntentSummary(w http.ResponseWriter, r *http.Request) {
 	tenantID, _, ok := h.requireIdentity(w, r)
@@ -153,6 +194,54 @@ func (h *IntentHandler) IntentSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, Envelope{Success: true, Data: out})
+}
+
+// respondExtractError maps extraction errors to specific HTTP codes and
+// human-readable messages. Operator-fixable failures (billing, auth,
+// permission) get distinct codes so the FE can surface different copy and
+// the operator can scan logs by code.
+func (h *IntentHandler) respondExtractError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, commands.ErrUserMessageRequired):
+		writeError(w, http.StatusBadRequest, "user_message_required", err.Error())
+	case errors.Is(err, commands.ErrUserMessageTooLong):
+		writeError(w, http.StatusBadRequest, "message_too_long", err.Error())
+
+	case errors.Is(err, services.ErrLLMBilling):
+		h.logger.Error().Err(err).Msg("extract: anthropic billing")
+		writeError(w, http.StatusServiceUnavailable, "llm_billing",
+			"AI workspace is out of credits. Top up at console.anthropic.com to re-enable chat.")
+	case errors.Is(err, services.ErrLLMAuth):
+		h.logger.Error().Err(err).Msg("extract: anthropic auth")
+		writeError(w, http.StatusServiceUnavailable, "llm_auth_error",
+			"AI service authentication failed. Operator: check ANTHROPIC_API_KEY.")
+	case errors.Is(err, services.ErrLLMPermission):
+		h.logger.Error().Err(err).Msg("extract: anthropic permission")
+		writeError(w, http.StatusServiceUnavailable, "llm_permission_error",
+			"AI workspace can't access the configured model. Operator: check ANTHROPIC_MODEL or workspace plan.")
+	case errors.Is(err, services.ErrLLMRateLimit):
+		h.logger.Warn().Err(err).Msg("extract: anthropic rate limited")
+		writeError(w, http.StatusTooManyRequests, "llm_rate_limited",
+			"AI service is rate-limited. Wait a moment and try again.")
+	case errors.Is(err, services.ErrLLMOverloaded):
+		h.logger.Warn().Err(err).Msg("extract: anthropic overloaded")
+		writeError(w, http.StatusServiceUnavailable, "llm_overloaded",
+			"AI service is overloaded. Try again in a moment.")
+	case errors.Is(err, services.ErrLLMTimeout):
+		h.logger.Warn().Err(err).Msg("extract: anthropic timeout")
+		writeError(w, http.StatusGatewayTimeout, "llm_timeout",
+			"AI service didn't respond in time. Try again.")
+	case errors.Is(err, services.ErrLLMResponseShape):
+		h.logger.Error().Err(err).Msg("extract: bad response shape")
+		writeError(w, http.StatusServiceUnavailable, "llm_response_error",
+			"AI returned an unexpected response. Try again or edit the form directly.")
+
+	default:
+		// Unknown / generic upstream — keep the original llm_unavailable code.
+		h.logger.Error().Err(err).Msg("extract failed")
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable",
+			"AI service is unavailable. Try again or edit the form directly.")
+	}
 }
 
 // requireIdentity extracts tenant + recruiter from the request context.
@@ -178,6 +267,8 @@ func (h *IntentHandler) respondDomainError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "invalid_state_transition", err.Error())
 	case errors.Is(err, entities.ErrCannotConfirmWithoutSkills):
 		writeError(w, http.StatusUnprocessableEntity, "invariant_violation", err.Error())
+	case errors.Is(err, entities.ErrContextFieldTooLong):
+		writeError(w, http.StatusUnprocessableEntity, "context_field_too_long", err.Error())
 	case errors.Is(err, valueobjects.ErrInvalidIntentID),
 		errors.Is(err, shared.ErrInvalidTenantID),
 		errors.Is(err, shared.ErrInvalidRecruiterID):

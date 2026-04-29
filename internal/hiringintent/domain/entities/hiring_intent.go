@@ -4,6 +4,7 @@ package entities
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/hustle/hireflow/internal/hiringintent/domain/events"
@@ -36,6 +37,13 @@ type HiringIntent struct {
 	intentSignals []valueobjects.IntentSignal
 	trustSignals  []valueobjects.TrustSignal
 	budget        *valueobjects.BudgetRange
+	// Organizational context — optional free-text. Reason is *why* the role
+	// exists (backfill, growth, new product), Team is the squad/pod the hire
+	// joins, ReportsTo is the hiring manager. None gate confirm or affect
+	// other invariants; they're context for the recruiter and the LLM.
+	reason       string
+	team         string
+	reportsTo    string
 	status        valueobjects.IntentStatus
 	createdAt     time.Time
 	updatedAt     time.Time
@@ -45,6 +53,14 @@ type HiringIntent struct {
 
 	pendingEvents []events.Event
 }
+
+// MaxContextFieldLen caps each free-text context field. Big enough for a
+// sentence, small enough to keep tokens predictable when fed to the LLM.
+const MaxContextFieldLen = 500
+
+// ErrContextFieldTooLong is returned when reason / team / reports_to exceed
+// MaxContextFieldLen after trimming.
+var ErrContextFieldTooLong = errors.New("context field exceeds " + "500" + " characters")
 
 // NewHiringIntent constructs a fresh intent in Drafted state and emits IntentDrafted.
 // The role spec must already be valid (constructed via valueobjects.NewRoleSpec).
@@ -76,6 +92,16 @@ func NewHiringIntent(
 	return intent, nil
 }
 
+// HydrateContext is a small bag for the optional context fields used by
+// HydrateHiringIntent. Adding a struct here keeps the constructor's
+// argument list manageable and makes future context fields a non-event for
+// callers that already pass an empty value.
+type HydrateContext struct {
+	Reason    string
+	Team      string
+	ReportsTo string
+}
+
 // HydrateHiringIntent reconstitutes an aggregate from persistence. Used only by
 // repository implementations — does not raise events.
 func HydrateHiringIntent(
@@ -87,6 +113,7 @@ func HydrateHiringIntent(
 	intentSignals []valueobjects.IntentSignal,
 	trustSignals []valueobjects.TrustSignal,
 	budget *valueobjects.BudgetRange,
+	ctx HydrateContext,
 	status valueobjects.IntentStatus,
 	createdAt, updatedAt time.Time,
 	confirmedAt, cancelledAt *time.Time,
@@ -101,6 +128,9 @@ func HydrateHiringIntent(
 		intentSignals: append([]valueobjects.IntentSignal(nil), intentSignals...),
 		trustSignals:  append([]valueobjects.TrustSignal(nil), trustSignals...),
 		budget:        budget,
+		reason:        ctx.Reason,
+		team:          ctx.Team,
+		reportsTo:     ctx.ReportsTo,
 		status:        status,
 		createdAt:     createdAt,
 		updatedAt:     updatedAt,
@@ -120,6 +150,9 @@ func (h *HiringIntent) IntentSignals() []valueobjects.IntentSignal { return appe
 func (h *HiringIntent) TrustSignals() []valueobjects.TrustSignal   { return append([]valueobjects.TrustSignal(nil), h.trustSignals...) }
 func (h *HiringIntent) Budget() *valueobjects.BudgetRange          { return h.budget }
 func (h *HiringIntent) Status() valueobjects.IntentStatus          { return h.status }
+func (h *HiringIntent) Reason() string                             { return h.reason }
+func (h *HiringIntent) Team() string                               { return h.team }
+func (h *HiringIntent) ReportsTo() string                          { return h.reportsTo }
 func (h *HiringIntent) CreatedAt() time.Time                       { return h.createdAt }
 func (h *HiringIntent) UpdatedAt() time.Time                       { return h.updatedAt }
 func (h *HiringIntent) ConfirmedAt() *time.Time                    { return h.confirmedAt }
@@ -168,6 +201,32 @@ func (h *HiringIntent) SetBudget(b valueobjects.BudgetRange) error {
 		return ErrCannotModifyConfirmed
 	}
 	h.budget = &b
+	h.touch()
+	return nil
+}
+
+// SetReason sets the recruiter's free-text rationale for the role
+// (backfill, growth, new product line, etc). Empty string clears it.
+func (h *HiringIntent) SetReason(s string) error { return h.setContext(&h.reason, s) }
+
+// SetTeam sets the team / pod / squad the hire will join. Empty clears.
+func (h *HiringIntent) SetTeam(s string) error { return h.setContext(&h.team, s) }
+
+// SetReportsTo sets the hiring manager / reporting line. Empty clears.
+func (h *HiringIntent) SetReportsTo(s string) error { return h.setContext(&h.reportsTo, s) }
+
+// setContext is the shared write path for the three free-text context
+// fields. Trims surrounding whitespace, enforces MaxContextFieldLen, and
+// rejects writes on a non-Drafted intent.
+func (h *HiringIntent) setContext(field *string, raw string) error {
+	if !h.IsModifiable() {
+		return ErrCannotModifyConfirmed
+	}
+	v := strings.TrimSpace(raw)
+	if len(v) > MaxContextFieldLen {
+		return ErrContextFieldTooLong
+	}
+	*field = v
 	h.touch()
 	return nil
 }

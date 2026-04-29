@@ -47,6 +47,7 @@ func (r *PostgresIntentRepository) Save(ctx context.Context, intent *entities.Hi
 	_, err = tx.Exec(ctx, upsertSQL,
 		row.id, row.tenantID, row.recruiterID,
 		row.role, row.priority, row.intentSignals, row.trustSignals, row.budget,
+		row.reason, row.team, row.reportsTo,
 		row.status, row.createdAt, row.updatedAt, row.confirmedAt, row.cancelledAt, row.cancelReason,
 	)
 	if err != nil {
@@ -78,6 +79,7 @@ func (r *PostgresIntentRepository) FindByID(ctx context.Context, tenantID shared
 	err := r.pool.QueryRow(ctx, selectByIDSQL, id.String(), tenantID.String()).Scan(
 		&row.id, &row.tenantID, &row.recruiterID,
 		&row.role, &row.priority, &row.intentSignals, &row.trustSignals, &row.budget,
+		&row.reason, &row.team, &row.reportsTo,
 		&row.status, &row.createdAt, &row.updatedAt, &row.confirmedAt, &row.cancelledAt, &row.cancelReason,
 	)
 	if err != nil {
@@ -180,11 +182,13 @@ const upsertSQL = `
 INSERT INTO hiring_intents (
     id, tenant_id, recruiter_id,
     role, priority, intent_signals, trust_signals, budget,
+    reason, team, reports_to,
     status, created_at, updated_at, confirmed_at, cancelled_at, cancel_reason
 ) VALUES (
     $1, $2, $3,
     $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13, $14
+    $9, $10, $11,
+    $12, $13, $14, $15, $16, $17
 )
 ON CONFLICT (id) DO UPDATE SET
     role           = EXCLUDED.role,
@@ -192,6 +196,9 @@ ON CONFLICT (id) DO UPDATE SET
     intent_signals = EXCLUDED.intent_signals,
     trust_signals  = EXCLUDED.trust_signals,
     budget         = EXCLUDED.budget,
+    reason         = EXCLUDED.reason,
+    team           = EXCLUDED.team,
+    reports_to     = EXCLUDED.reports_to,
     status         = EXCLUDED.status,
     updated_at     = EXCLUDED.updated_at,
     confirmed_at   = EXCLUDED.confirmed_at,
@@ -207,6 +214,7 @@ VALUES ($1, $2, $3, $4, $5)
 const selectByIDSQL = `
 SELECT id, tenant_id, recruiter_id,
        role, priority, intent_signals, trust_signals, budget,
+       reason, team, reports_to,
        status, created_at, updated_at, confirmed_at, cancelled_at, cancel_reason
 FROM hiring_intents
 WHERE id = $1 AND tenant_id = $2
@@ -215,6 +223,7 @@ WHERE id = $1 AND tenant_id = $2
 const selectListSQL = `
 SELECT id, tenant_id, recruiter_id,
        role, priority, intent_signals, trust_signals, budget,
+       reason, team, reports_to,
        status, created_at, updated_at, confirmed_at, cancelled_at, cancel_reason
 FROM hiring_intents
 WHERE tenant_id = $1

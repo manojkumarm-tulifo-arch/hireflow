@@ -35,3 +35,25 @@ func (p *LogPublisher) Publish(_ context.Context, event events.Event) error {
 		Msg("domain event published")
 	return nil
 }
+
+// Bus is the minimum surface BusPublisher needs from a process-local event
+// bus. Mirrors the same port in hiringintent/messaging — defined per
+// context so neither depends on a shared abstraction beyond the bus impl.
+type Bus interface {
+	Publish(ctx context.Context, eventName string, event any) error
+}
+
+// BusPublisher forwards jobposting events onto a process-local Bus.
+type BusPublisher struct {
+	bus Bus
+}
+
+// NewBusPublisher wires the publisher.
+func NewBusPublisher(bus Bus) *BusPublisher {
+	return &BusPublisher{bus: bus}
+}
+
+// Publish hands the event to the bus keyed by EventName().
+func (p *BusPublisher) Publish(ctx context.Context, event events.Event) error {
+	return p.bus.Publish(ctx, event.EventName(), event)
+}

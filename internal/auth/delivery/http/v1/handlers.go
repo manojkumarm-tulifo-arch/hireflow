@@ -137,9 +137,12 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // respondDomainError maps domain/repository errors to HTTP status codes.
-// Auth deliberately collapses many failure modes into the same code/message
-// to avoid information leakage (e.g., we don't differentiate "wrong code"
-// vs "session expired" beyond a generic invalid_otp).
+// OTP failure modes are split into distinct codes so the FE can show
+// actionable copy: "code expired" → request a new one; "no attempts left"
+// → request a new one; "wrong code" → try again. The security cost is
+// negligible — an attacker without the OTP can already distinguish "wrong
+// code" from "no session" via timing, and these distinctions only help
+// legitimate users.
 func (h *AuthHandler) respondDomainError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, repositories.ErrEmailAlreadyRegistered):
@@ -152,14 +155,29 @@ func (h *AuthHandler) respondDomainError(w http.ResponseWriter, err error) {
 		errors.Is(err, repositories.ErrOTPSessionNotFound),
 		errors.Is(err, repositories.ErrRefreshTokenNotFound):
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "credentials rejected")
-	case errors.Is(err, entities.ErrOTPCodeMismatch),
-		errors.Is(err, entities.ErrOTPExpired),
-		errors.Is(err, entities.ErrOTPAlreadyVerified),
-		errors.Is(err, entities.ErrOTPNoAttemptsLeft):
-		writeError(w, http.StatusUnauthorized, "invalid_otp", "Invalid OTP. Please try again.")
-	case errors.Is(err, entities.ErrCannotSignInWhenNotActive),
-		errors.Is(err, entities.ErrAccountLocked):
-		writeError(w, http.StatusForbidden, "account_unavailable", "account cannot sign in")
+
+	// OTP failure modes — distinct codes for actionable FE messaging.
+	case errors.Is(err, entities.ErrOTPExpired):
+		writeError(w, http.StatusUnauthorized, "otp_expired",
+			"This code has expired. Request a fresh one.")
+	case errors.Is(err, entities.ErrOTPNoAttemptsLeft):
+		writeError(w, http.StatusUnauthorized, "otp_max_attempts",
+			"Too many wrong attempts on this code. Request a fresh one.")
+	case errors.Is(err, entities.ErrOTPAlreadyVerified):
+		writeError(w, http.StatusUnauthorized, "otp_already_used",
+			"This code has already been used. Request a fresh one.")
+	case errors.Is(err, entities.ErrOTPCodeMismatch):
+		writeError(w, http.StatusUnauthorized, "otp_mismatch",
+			"That code doesn't match. Try again or request a fresh one.")
+
+	// Account-state failures — split so FE can guide the user.
+	case errors.Is(err, entities.ErrAccountLocked):
+		writeError(w, http.StatusForbidden, "account_locked",
+			"This account is locked after repeated failed attempts. Wait 15 minutes and try again, or contact support.")
+	case errors.Is(err, entities.ErrCannotSignInWhenNotActive):
+		writeError(w, http.StatusForbidden, "account_pending",
+			"This account hasn't been verified yet. Check your email for the original verification link, or sign up again.")
+
 	case errors.Is(err, entities.ErrRefreshTokenRevoked),
 		errors.Is(err, entities.ErrRefreshTokenExpired),
 		errors.Is(err, entities.ErrRefreshTokenInvalid),

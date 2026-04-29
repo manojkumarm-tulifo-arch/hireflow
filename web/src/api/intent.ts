@@ -1,5 +1,12 @@
 import { request } from './client';
-import type { CreateIntentRequest, Intent, IntentListFilter, IntentSummary } from './types';
+import type {
+  CreateIntentRequest,
+  ExtractRequest,
+  ExtractResponse,
+  Intent,
+  IntentListFilter,
+  IntentSummary,
+} from './types';
 
 export const intentApi = {
   list: (filter?: IntentListFilter) =>
@@ -14,4 +21,7 @@ export const intentApi = {
 
   confirm: (id: string) =>
     request<Intent>(`/api/v1/intents/${id}/confirm`, { method: 'POST' }),
+
+  extract: (body: ExtractRequest) =>
+    request<ExtractResponse>('/api/v1/intents/extract', { method: 'POST', body }),
 };

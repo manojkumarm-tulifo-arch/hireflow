@@ -1,0 +1,33 @@
+graph TD
+    Start([Start: Recruiter sends a chat message])
+    HTTP[POST /api/v1/intents/extract<br/>messages, draft, user_message]
+    AuthCheck{Bearer JWT valid?}
+    Auth401[Return 401 unauthorized]
+    InputCheck{user_message present?<br/><= 4000 chars?}
+    Input400[Return 400 user_message_required<br/>or message_too_long]
+    Truncate[Truncate history to last 20 turns]
+    BuildReq[Build Messages API request:<br/>cached system prompt + propose_draft tool<br/>+ history + draft state + user_message]
+    LLMCall[Call Claude with tool_choice=propose_draft]
+    LLMOK{Upstream OK?}
+    LLM503[Return 503 llm_unavailable<br/>FE shows offline banner; form still editable]
+    Parse[Parse tool_use input → DraftPatch + reply + complete + missing]
+    Validate[Domain validation:<br/>drop invalid work_mode/priority/<br/>headcount/years range/empty skills<br/>into warnings]
+    Resp[Return 200 with reply + sparse patch<br/>+ complete + missing + warnings]
+    FEMerge[FE merges patch into draft<br/>appends reply to messages<br/>renders warnings as soft amber chip]
+    End([End: Draft updated; recruiter can keep chatting<br/>or click Create Draft Intent])
+
+    Start --> HTTP
+    HTTP --> AuthCheck
+    AuthCheck -->|No| Auth401
+    AuthCheck -->|Yes| InputCheck
+    InputCheck -->|No| Input400
+    InputCheck -->|Yes| Truncate
+    Truncate --> BuildReq
+    BuildReq --> LLMCall
+    LLMCall --> LLMOK
+    LLMOK -->|No| LLM503
+    LLMOK -->|Yes| Parse
+    Parse --> Validate
+    Validate --> Resp
+    Resp --> FEMerge
+    FEMerge --> End

@@ -29,6 +29,9 @@ export interface Intent {
   intent_signals: IntentSignal[];
   trust_signals: TrustSignal[];
   budget?: Budget;
+  reason?: string;
+  team?: string;
+  reports_to?: string;
   status: IntentStatus;
   created_at: string;
   updated_at: string;
@@ -47,6 +50,62 @@ export interface CreateIntentRequest {
   work_mode: WorkMode;
   priority: Priority;
   budget?: Budget;
+  reason?: string;
+  team?: string;
+  reports_to?: string;
+}
+
+// Extraction (LLM-driven intent capture). The chat is stateless on the
+// server; the client passes the prior history + current draft on every turn.
+export interface ExtractMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface ExtractDraft {
+  role_title?: string;
+  skills?: Skill[];
+  min_years?: number;
+  max_years?: number;
+  headcount?: number;
+  locations?: string[];
+  work_mode?: WorkMode | '';
+  priority?: Priority | '';
+  budget?: Budget;
+  reason?: string;
+  team?: string;
+  reports_to?: string;
+}
+
+export interface ExtractRequest {
+  messages: ExtractMessage[];
+  draft: ExtractDraft;
+  user_message: string;
+}
+
+// DraftPatch fields are optional on every turn — only the fields the LLM
+// updated this turn appear. Empty arrays for skills/locations also possible.
+export interface DraftPatch {
+  role_title?: string;
+  skills?: Skill[];
+  min_years?: number;
+  max_years?: number;
+  headcount?: number;
+  locations?: string[];
+  work_mode?: WorkMode;
+  priority?: Priority;
+  budget?: Budget;
+  reason?: string;
+  team?: string;
+  reports_to?: string;
+}
+
+export interface ExtractResponse {
+  reply: string;
+  patch: DraftPatch;
+  complete: boolean;
+  missing?: string[];
+  warnings?: string[];
 }
 
 export type IntentSortOrder = 'NEWEST' | 'URGENT';

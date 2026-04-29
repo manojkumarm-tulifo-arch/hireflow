@@ -8,6 +8,7 @@ func Mount(r chi.Router, h *IntentHandler) {
 		r.Get("/", h.ListIntents)
 		r.Get("/summary", h.IntentSummary)
 		r.Post("/", h.CreateIntent)
+		r.Post("/extract", h.ExtractIntent)
 		r.Get("/{id}", h.GetIntent)
 		r.Post("/{id}/confirm", h.ConfirmIntent)
 	})

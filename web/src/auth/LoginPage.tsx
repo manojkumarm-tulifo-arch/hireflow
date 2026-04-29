@@ -74,6 +74,28 @@ export function LoginPage() {
     }
   };
 
+  // Codes that mean "this OTP can no longer succeed; user needs a new one".
+  // We surface a one-click "Send a fresh code" CTA alongside the banner.
+  const otpUnusable = error?.code === 'otp_expired'
+    || error?.code === 'otp_max_attempts'
+    || error?.code === 'otp_already_used';
+
+  const resendOTP = async () => {
+    setError(null); setCode(''); setBusy(true);
+    try {
+      if (mode === 'signup') {
+        await authApi.signupRequestOTP({ email, name, tenant_slug: tenant });
+      } else {
+        await authApi.signinRequestOTP({ email });
+      }
+      // Stay on the code step; the input is now waiting for the new code.
+    } catch (err) {
+      captureError(err, 'resend failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-line-soft">
       <BrandPanel />
@@ -191,9 +213,23 @@ export function LoginPage() {
                   />
                 </Field>
 
-                {error && <ErrorBanner>{error.message}</ErrorBanner>}
+                {error && (
+                  <div className="space-y-2">
+                    <ErrorBanner>{error.message}</ErrorBanner>
+                    {otpUnusable && (
+                      <button
+                        type="button"
+                        onClick={resendOTP}
+                        disabled={busy}
+                        className="text-xs font-bold text-accent hover:underline disabled:opacity-40"
+                      >
+                        Send a fresh code →
+                      </button>
+                    )}
+                  </div>
+                )}
 
-                <PrimaryButton type="submit" disabled={busy || code.length !== 6}>
+                <PrimaryButton type="submit" disabled={busy || code.length !== 6 || otpUnusable}>
                   {busy ? <Spinner /> : <CheckCircle2 className="w-4 h-4" />}
                   Verify and continue
                   {!busy && <ArrowRight className="w-4 h-4" />}

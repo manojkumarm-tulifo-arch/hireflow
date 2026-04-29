@@ -117,6 +117,66 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /intents/extract:
+    post:
+      summary: Run one LLM extraction turn on a free-text recruiter message
+      description: |
+        Read-only relative to the domain. Returns a sparse `patch` (fields to
+        merge into the in-progress draft), a chat reply, and a `complete`
+        flag. Stateless server — caller passes the prior chat history and
+        current draft on every turn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractRequest'
+      responses:
+        '200':
+          description: Extraction successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractResponse'
+        '400':
+          description: |
+            Validation rejected. Error codes:
+            - `user_message_required` — body had no `user_message`
+            - `message_too_long` — `user_message` > 4000 chars
+            - `invalid_json` — malformed body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: |
+            AI service is rate-limited (transient). Error code: `llm_rate_limited`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: |
+            AI service is unavailable. Specific error codes the FE branches on:
+            - `llm_billing` — Anthropic workspace is out of credits (operator action)
+            - `llm_auth_error` — API key missing/invalid (operator action)
+            - `llm_permission_error` — workspace can't access the model (operator action)
+            - `llm_overloaded` — upstream is overloaded (transient)
+            - `llm_response_error` — model returned an unexpected shape (transient)
+            - `llm_unavailable` — generic / unclassified upstream failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: |
+            AI service didn't respond within the request timeout (transient).
+            Error code: `llm_timeout`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -160,6 +220,9 @@ components:
         work_mode: { type: string, enum: [ONSITE, REMOTE, HYBRID] }
         priority:  { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
         budget:    { $ref: '#/components/schemas/Budget' }
+        reason:    { type: string, maxLength: 500, description: 'Why the role exists (free text).' }
+        team:      { type: string, maxLength: 500, description: 'Team / squad / pod the hire joins.' }
+        reports_to:{ type: string, maxLength: 500, description: 'Hiring manager or reporting line.' }
 
     IntentSignal:
       type: object
@@ -206,6 +269,9 @@ components:
           type: array
           items: { $ref: '#/components/schemas/TrustSignal' }
         budget: { $ref: '#/components/schemas/Budget' }
+        reason:     { type: string }
+        team:       { type: string }
+        reports_to: { type: string }
         status: { type: string }
         created_at:   { type: string, format: date-time }
         updated_at:   { type: string, format: date-time }
@@ -248,6 +314,88 @@ components:
       properties:
         success: { type: boolean }
         data:    { $ref: '#/components/schemas/IntentSummary' }
+
+    ExtractMessage:
+      type: object
+      required: [role, text]
+      properties:
+        role: { type: string, enum: [user, assistant] }
+        text: { type: string }
+
+    ExtractDraft:
+      description: Sparse mirror of CreateIntentRequest. Empty/zero values are treated as "not yet filled".
+      type: object
+      properties:
+        role_title: { type: string }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/Skill' }
+        min_years: { type: integer, minimum: 0 }
+        max_years: { type: integer, minimum: 0 }
+        headcount: { type: integer, minimum: 0 }
+        locations:
+          type: array
+          items: { type: string }
+        work_mode: { type: string, enum: [ONSITE, REMOTE, HYBRID] }
+        priority:  { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        budget:    { $ref: '#/components/schemas/Budget' }
+        reason:    { type: string, maxLength: 500 }
+        team:      { type: string, maxLength: 500 }
+        reports_to:{ type: string, maxLength: 500 }
+
+    ExtractRequest:
+      type: object
+      required: [user_message]
+      properties:
+        messages:
+          type: array
+          description: Prior chat history excluding the current user turn.
+          items: { $ref: '#/components/schemas/ExtractMessage' }
+        draft: { $ref: '#/components/schemas/ExtractDraft' }
+        user_message:
+          type: string
+          maxLength: 4000
+          description: The recruiter's latest turn.
+
+    DraftPatch:
+      description: Sparse — only fields the LLM updated this turn appear.
+      type: object
+      properties:
+        role_title: { type: string }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/Skill' }
+        min_years: { type: integer, minimum: 0 }
+        max_years: { type: integer, minimum: 0 }
+        headcount: { type: integer, minimum: 1 }
+        locations:
+          type: array
+          items: { type: string }
+        work_mode: { type: string, enum: [ONSITE, REMOTE, HYBRID] }
+        priority:  { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        budget:    { $ref: '#/components/schemas/Budget' }
+        reason:    { type: string, maxLength: 500 }
+        team:      { type: string, maxLength: 500 }
+        reports_to:{ type: string, maxLength: 500 }
+
+    ExtractResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          required: [reply, patch, complete]
+          properties:
+            reply:    { type: string }
+            patch:    { $ref: '#/components/schemas/DraftPatch' }
+            complete: { type: boolean }
+            missing:
+              type: array
+              items: { type: string }
+            warnings:
+              type: array
+              items: { type: string }
 
     Error:
       type: object

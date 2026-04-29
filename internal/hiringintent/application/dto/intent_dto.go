@@ -77,6 +77,9 @@ type IntentDTO struct {
 	IntentSignals []IntentSignalDTO `json:"intent_signals"`
 	TrustSignals  []TrustSignalDTO  `json:"trust_signals"`
 	Budget        *BudgetDTO        `json:"budget,omitempty"`
+	Reason        string            `json:"reason,omitempty"`
+	Team          string            `json:"team,omitempty"`
+	ReportsTo     string            `json:"reports_to,omitempty"`
 	Status        string            `json:"status"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
@@ -119,6 +122,9 @@ func FromEntity(h *entities.HiringIntent) IntentDTO {
 		Priority:      string(h.Priority()),
 		IntentSignals: intentSigDTOs,
 		TrustSignals:  trustSigDTOs,
+		Reason:        h.Reason(),
+		Team:          h.Team(),
+		ReportsTo:     h.ReportsTo(),
 		Status:        string(h.Status()),
 		CreatedAt:     h.CreatedAt(),
 		UpdatedAt:     h.UpdatedAt(),

@@ -1,6 +1,7 @@
 import {
   Briefcase, GraduationCap, MapPin, Hash, CheckCircle2, Flame, Target,
   CircleDollarSign, Globe, Pencil, ShieldCheck,
+  Users, UserCircle, Lightbulb,
 } from 'lucide-react';
 import { Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
@@ -108,7 +109,20 @@ export function IntentCard({ intent, onConfirm, onEdit, confirming }: Props) {
               span
             />
           )}
+          {intent.team && (
+            <Fact icon={<Users className="w-3.5 h-3.5" />} label={intent.team} />
+          )}
+          {intent.reports_to && (
+            <Fact icon={<UserCircle className="w-3.5 h-3.5" />} label={`Reports to ${intent.reports_to}`} />
+          )}
         </div>
+
+        {intent.reason && (
+          <div className="flex items-start gap-2 pt-0.5 text-[12px] text-ink-sub leading-relaxed">
+            <Lightbulb className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
+            <span><span className="font-bold text-ink-mute uppercase tracking-wider text-[10px] mr-1.5">Reason</span>{intent.reason}</span>
+          </div>
+        )}
 
         {intent.intent_signals.length > 0 && (
           <SignalSection title="Intent Signals" tone="accent">

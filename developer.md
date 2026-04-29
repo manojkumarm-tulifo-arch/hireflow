@@ -100,6 +100,11 @@ export JWT_ACCESS_SECRET="dev-secret-change-me"
 export JWT_ISSUER="hireflow"     # optional, default "hireflow"
 export PORT="8080"               # optional, default 8080
 export LOG_LEVEL="info"          # optional, debug|info|warn|error
+
+# LLM extraction (required — server is fatal at startup if unset)
+export ANTHROPIC_API_KEY="sk-ant-..."   # https://console.anthropic.com/settings/keys
+export ANTHROPIC_MODEL="claude-opus-4-7" # optional, default claude-opus-4-7
+export ANTHROPIC_TIMEOUT="30s"           # optional, default 30s
 ```
 
 Switching paths later is just changing `DATABASE_URL` and re-running `make migrate-up` — both DBs can coexist on different ports.
@@ -275,6 +280,31 @@ curl -s -X POST http://localhost:8080/api/v1/intents/$INTENT_ID/confirm \
 ```bash
 curl -s http://localhost:8080/api/v1/intents -H "Authorization: Bearer $TOKEN" | jq .
 curl -s 'http://localhost:8080/api/v1/intents?status=CONFIRMED' -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+### Try LLM extraction
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/intents/extract \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [],
+    "draft": {},
+    "user_message": "Hiring 2 senior Go engineers in Bangalore, 3-7 years, hybrid, high priority"
+  }' | jq .
+# data.patch is the sparse fields the model extracted; data.reply is the chat turn;
+# data.complete is true once the patch + draft together have all required fields.
+#
+# Error codes the FE branches on (see docs/api/v1/hiringintent.openapi.yaml):
+#   503 llm_billing            — workspace out of credits (top up at console.anthropic.com)
+#   503 llm_auth_error         — bad ANTHROPIC_API_KEY
+#   503 llm_permission_error   — workspace can't access ANTHROPIC_MODEL
+#   429 llm_rate_limited       — back off and retry
+#   503 llm_overloaded         — upstream overloaded; retry
+#   504 llm_timeout            — upstream slow; retry
+#   503 llm_response_error     — model returned bad shape (rare with tool_choice)
+#   503 llm_unavailable        — generic / unclassified upstream failure
 ```
 
 ### Use the FE

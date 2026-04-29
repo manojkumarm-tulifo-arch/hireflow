@@ -45,7 +45,7 @@ src/
 │   ├── types.ts        Hand-mirrored from docs/api/v1/*.openapi.yaml
 │   ├── client.ts       fetch wrapper + bearer + refresh-on-401 + envelope
 │   ├── auth.ts         Typed signup / signin / refresh / logout
-│   ├── intent.ts       Hiring-intent endpoints (list with q/sort, summary, get, create, confirm)
+│   ├── intent.ts       Hiring-intent endpoints (list with q/sort, summary, get, create, confirm, extract)
 │   └── posting.ts      Job-posting endpoints
 ├── auth/
 │   ├── AuthContext.tsx 2-token store, auto-refresh hook, signOut
@@ -55,7 +55,7 @@ src/
 │   ├── ui/             Primitives: Button, Card, Badge, Input, Spinner, StatusBadge
 │   └── layout/         AppShell with sidebar nav
 ├── features/
-│   ├── intent/         Capture chat + IntentCard, list, detail
+│   ├── intent/         Capture chat (live LLM extraction via /intents/extract) + IntentCard, list, detail
 │   └── posting/        List, detail with publish + close actions
 ├── lib/                cn() className helper
 ├── routes.tsx          Route table

@@ -6,7 +6,20 @@ info:
     Public auth endpoints. All return the standard envelope; on success
     `data` carries the typed payload, on failure `error.code` is one of:
     invalid_input, invalid_json, email_taken, tenant_not_found,
-    invalid_credentials, invalid_otp, account_unavailable, invalid_refresh.
+    invalid_credentials, invalid_refresh,
+    otp_expired, otp_max_attempts, otp_already_used, otp_mismatch,
+    account_locked, account_pending.
+
+    OTP failure modes are split into specific codes so the FE can show
+    actionable copy:
+    - `otp_expired` — code TTL elapsed; recruiter must request a new one.
+    - `otp_max_attempts` — too many wrong guesses on this code; request fresh.
+    - `otp_already_used` — code was already verified; request fresh.
+    - `otp_mismatch` — wrong code; user can try again on the same session.
+
+    Account-state failures distinguish:
+    - `account_locked` — locked after repeated failures (cool-down required).
+    - `account_pending` — sign-up wasn't completed (verification skipped).
 
 servers:
   - url: http://localhost:8080/api/v1
