@@ -40,6 +40,60 @@ flow described in the Tulifo pre-seed deck.
 | D12 | **Adapter classifies its own retryability** via `RetryDecision{Retryable, Reason, Detail, BackoffHint}`. Worker applies exponential backoff (1m/5m/15m/1h/4h, cap 5 attempts) for retryable; fatal terminates immediately. | Only the adapter knows whether a 5xx is transient or a `parse_resume: not_a_resume` is terminal. Centralized policy would either over- or under-retry. |
 | D13 | **PII to LLM is unavoidable for parsing; mitigate via Anthropic ZDR enrollment on the API key.** `LLMJudge` receives `ParsedProfile`, not raw resume text. Application-layer envelope encryption on `parsed_profile.personal.*` with tenant-scoped DEKs. | Pitch deck commits to DPDP/GDPR/EU AI Act. ZDR + envelope encryption is the realistic operating posture. |
 | D14 | **Prompts version-controlled in code; prompt-version stored on `applications.llm_judgment`.** Schema-versioned `ParsedProfile` (`schema_version: 1`).                                                                    | EU AI Act auditability — must be able to point to the exact prompt that produced any past score. |
+| D15 | **Deployment topology: modular monolith inside `hireflow`.** `sourcing` lives at `internal/sourcing/` alongside `auth`, `hiringintent`, `jobposting`. Shared Postgres, shared JWT middleware, in-process event bus, single binary, single deploy unit. DDD ports + anti-corruption layers are the seam — graduating to a separate worker binary or microservice later is a deployment change, not a redesign. | Pre-seed velocity matters more than scaling theory at this stage. Realistic v1 load (~10K resumes/month) fits one pod with massive headroom. Microservicing now buys nothing and costs an event bus, distributed-tx semantics, cross-service auth duplication, and a second CI pipeline. The seam is preserved via the existing port pattern. |
+
+## Deployment topology
+
+`sourcing` is **not** a microservice in v1. It is a bounded context inside the
+`hireflow` monolith, sharing process, Postgres, JWT, and event bus with the
+other contexts. The architecture deliberately preserves the seam so that a
+future split is a deployment change rather than a redesign.
+
+### Single deploy unit (v1)
+
+```
+hireflow (one binary, N pods)
+├── HTTP API surface (auth, hiringintent, jobposting, sourcing routes)
+├── Outbox dispatchers (one per context, all writing into the same in-memory bus)
+├── Cross-context subscribers (jobposting consumes IntentConfirmed in-process)
+└── Sourcing worker pool (goroutines polling resume_uploads)
+```
+
+All four contexts use the same Postgres (separate schemas tracked via
+per-context `schema_migrations_*` tables — existing convention).
+
+### Why this is safe to defer
+
+The microservice-style coupling rules are already enforced by the codebase:
+
+- **Anti-corruption clients** (e.g. `IntentReader`) project upstream aggregates
+  into local snapshot types. Cross-context reads don't import each other's
+  domain types.
+- **Events are the only cross-context write path.** No context calls another's
+  application handler directly.
+- **Ports for everything external** — LLM, embedder, scanner, storage. Each
+  port is a one-adapter swap to a remote service if needed.
+
+Lifting `sourcing` into its own binary later means: a new `cmd/sourcing-worker/`,
+adapter-level changes if we move to an external event bus, and removing the
+worker `go` goroutines from `cmd/api/`. The internal packages, the domain,
+the application layer, the data model — none of those change.
+
+### Graduation criteria (when to revisit)
+
+**To a separate worker binary (modular monolith, same repo):**
+- Worker pool saturating ≥16 concurrent processings sustained.
+- PDF parsing memory spikes ↑ p99 API latency for non-sourcing requests.
+- Need to ship parsing changes more than once per day independent of auth/intent.
+
+**To a separate microservice (own repo, own deploy):**
+- A second team owns sourcing with independent release cadence.
+- The parser stack diverges from Go (e.g., Python ML model that doesn't fit).
+- A non-hireflow product needs the parser API (e.g., the Tulifo Capability Card
+  serving external ATSes — explicitly out-of-scope for v1 per the Non-goals
+  section below).
+
+None of these apply at pre-seed scale; revisit only when one demonstrably does.
 
 ## Non-goals (v1)
 
