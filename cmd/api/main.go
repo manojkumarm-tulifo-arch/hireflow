@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -42,6 +43,16 @@ import (
 	postingsubs "github.com/hustle/hireflow/internal/jobposting/infrastructure/subscribers"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/eventbus"
+	sourcingcommands "github.com/hustle/hireflow/internal/sourcing/application/commands"
+	sourcingqueries "github.com/hustle/hireflow/internal/sourcing/application/queries"
+	sourcinghttp "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
+	sourcingsvc "github.com/hustle/hireflow/internal/sourcing/domain/services"
+	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
+	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
+	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
+	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
+	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
+	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
 )
 
 func main() {
@@ -114,6 +125,52 @@ func main() {
 		logger,
 	)
 
+	// Wire sourcing context — ingestion pipeline (slice 1: scan + extract).
+	storageRoot := getenv("SOURCING_STORAGE_PATH", "/tmp/hireflow-resumes")
+	resumeStorage, err := sourcingstorage.NewLocalFS(storageRoot)
+	if err != nil {
+		logger.Fatal().Err(err).Str("path", storageRoot).Msg("init resume storage")
+	}
+
+	var scanner sourcingsvc.FileScanner
+	switch getenv("SOURCING_SCANNER_BACKEND", "noop") {
+	case "clamd":
+		addr := getenv("SOURCING_SCANNER_ADDR", "tcp://localhost:3310")
+		c := sourcingscan.NewClamd(addr)
+		if err := c.Ping(); err != nil {
+			logger.Fatal().Err(err).Str("addr", addr).Msg("clamd ping failed")
+		}
+		scanner = c
+	default:
+		scanner = sourcingscan.NewNoop()
+	}
+
+	extractor := sourcingtext.NewSimple()
+
+	sourcingRepo := sourcingpersist.NewPostgresResumeUploadRepository(pool)
+	uploadHandler := sourcingcommands.NewUploadResumeBatchHandler(
+		sourcingRepo, resumeStorage,
+		sourcingcommands.UploadConfig{MaxFileBytes: getenvInt64("SOURCING_MAX_FILE_BYTES", 10*1024*1024)},
+	)
+	processHandler := sourcingcommands.NewProcessUploadHandler(sourcingcommands.ProcessConfig{
+		Repo: sourcingRepo, Storage: resumeStorage,
+		Scanner: scanner, Extractor: extractor,
+		RetryBackoff: []time.Duration{
+			1 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour, 4 * time.Hour,
+		},
+	})
+	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
+
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, logger)
+
+	sourcingPub := sourcingmsg.NewBusPublisher(bus)
+	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})
+
+	sourcingPool := sourcingworker.NewPool(sourcingRepo, processHandler, sourcingworker.Config{
+		Size:         getenvInt("SOURCING_WORKER_POOL", 4),
+		PollInterval: time.Second,
+	}, logger)
+
 	// Cross-context bridge: jobposting reacts to IntentConfirmed by drafting
 	// a posting. The IntentReader projects the upstream IntentDTO through
 	// an anti-corruption layer so jobposting depends on its own port type.
@@ -177,6 +234,7 @@ func main() {
 			r.Use(auth.Middleware(verifier))
 			intenthttp.Mount(r, intentHandler)
 			postinghttp.Mount(r, postingHandler)
+			sourcinghttp.Mount(r, sourcingHandler)
 		})
 	})
 
@@ -201,6 +259,18 @@ func main() {
 	go func() {
 		defer wg.Done()
 		postingDispatcher.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sourcingDispatcher.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sourcingPool.Run(ctx)
 	}()
 
 	wg.Add(1)
@@ -238,6 +308,22 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getenvInt64(key string, def int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+func getenvInt(key string, def int) int {
+	return int(getenvInt64(key, int64(def)))
 }
 
 func requestLogger(logger zerolog.Logger) func(next http.Handler) http.Handler {
