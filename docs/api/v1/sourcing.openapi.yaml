@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info:
+  title: hireflow — sourcing (slice 1)
+  version: "1.0.0-slice1"
+  description: |
+    Resume ingestion endpoints. Slice 1 ships batch upload + batch status only.
+    Parsing, matching, candidate detail, lifecycle actions come in later slices.
+paths:
+  /intents/{intent_id}/resumes:batch:
+    post:
+      summary: Upload a batch of resumes against an intent
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: intent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                resume:
+                  type: array
+                  items: { type: string, format: binary }
+      responses:
+        '200':
+          description: per-file outcome
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchUploadResponse' }
+        '400': { description: bad request }
+        '401': { description: missing identity }
+  /resumes/batches/{batch_id}:
+    get:
+      summary: Get aggregated status of a batch
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: status snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchStatusResponse' }
+        '401': { description: missing identity }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    BatchUploadResponse:
+      type: object
+      properties:
+        batch_id: { type: string, format: uuid }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BatchItemResponse' }
+    BatchItemResponse:
+      type: object
+      properties:
+        filename: { type: string }
+        upload_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, deduplicated] }
+        candidate_id: { type: string, format: uuid }
+        error: { $ref: '#/components/schemas/BatchItemError' }
+    BatchItemError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        detail: { type: object, additionalProperties: true }
+    BatchStatusResponse:
+      type: object
+      properties:
+        batch_id: { type: string, format: uuid }
+        intent_id: { type: string, format: uuid }
+        summary: { $ref: '#/components/schemas/BatchStatusSummary' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BatchStatusItem' }
+    BatchStatusSummary:
+      type: object
+      properties:
+        total: { type: integer }
+        in_flight: { type: integer }
+        extracted: { type: integer }
+        failed: { type: integer }
+        quarantined: { type: integer }
+    BatchStatusItem:
+      type: object
+      properties:
+        upload_id: { type: string, format: uuid }
+        filename: { type: string }
+        status: { type: string }
+        attempt: { type: integer }
+        last_error: { type: string }

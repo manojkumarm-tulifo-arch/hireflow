@@ -1,0 +1,11 @@
+package v1
+
+import "github.com/go-chi/chi/v5"
+
+// Mount registers v1 sourcing routes onto the given router. Note the path
+// for batch upload uses a `:batch` action suffix; chi's URL parser supports
+// it via plain path matching.
+func Mount(r chi.Router, h *SourcingHandler) {
+	r.Post("/intents/{intent_id}/resumes:batch", h.BatchUpload)
+	r.Get("/resumes/batches/{batch_id}", h.GetBatchStatus)
+}
