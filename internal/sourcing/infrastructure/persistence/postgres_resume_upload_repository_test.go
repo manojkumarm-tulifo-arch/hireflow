@@ -5,6 +5,7 @@ package persistence_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -51,11 +52,12 @@ func newUpload(t *testing.T, tenant shared.TenantID) *entities.ResumeUpload {
 	return u
 }
 
-// 64-char hex string seeded from a uuid (test helper).
+// 64-char hex string seeded from a uuid (test helper). UUIDs are 36 chars
+// with 4 dashes; strip them to get pure hex.
 func uuidHex(t *testing.T) string {
 	t.Helper()
 	a, b := uuid.New(), uuid.New()
-	return a.String()[0:32] + b.String()[0:32]
+	return strings.ReplaceAll(a.String(), "-", "") + strings.ReplaceAll(b.String(), "-", "")
 }
 
 func TestSave_PersistsRow_AndOutboxRow(t *testing.T) {

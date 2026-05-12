@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	shared "github.com/hustle/hireflow/internal/shared/domain"
@@ -69,13 +67,34 @@ func (r *PostgresResumeUploadRepository) Save(ctx context.Context, u *entities.R
 		row.createdAt, row.updatedAt,
 	)
 	if err != nil {
-		// Unique violation on (tenant_id, content_hash).
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-			strings.Contains(pgErr.ConstraintName, "tenant_hash") {
-			return repositories.ErrDuplicate
-		}
 		return fmt.Errorf("upsert upload: %w", err)
+	}
+
+	// Enforce tenant-scoped content_hash uniqueness via the dedup table.
+	// First-write of a (tenant_id, content_hash) inserts; subsequent attempts
+	// from a different upload_id fire 23505 and return ErrDuplicate. Same
+	// upload_id (a status-update Save on an existing aggregate) is a no-op
+	// — the WHERE in DO NOTHING handles that.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO resume_uploads_dedup (tenant_id, content_hash, upload_id, created_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (tenant_id, content_hash) DO NOTHING
+	`, row.tenantID, row.contentHash, row.id, row.createdAt)
+	if err != nil {
+		return fmt.Errorf("insert dedup: %w", err)
+	}
+	// Verify our upload_id won — if another upload_id owns the dedup row,
+	// this is a duplicate.
+	var owner uuid.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT upload_id FROM resume_uploads_dedup WHERE tenant_id=$1 AND content_hash=$2`,
+		row.tenantID, row.contentHash,
+	).Scan(&owner)
+	if err != nil {
+		return fmt.Errorf("read dedup: %w", err)
+	}
+	if owner != row.id {
+		return repositories.ErrDuplicate
 	}
 
 	for _, ev := range u.PullEvents() {

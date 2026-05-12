@@ -52,5 +52,17 @@ CREATE INDEX resume_uploads_pending_idx
 CREATE INDEX resume_uploads_batch_idx ON resume_uploads (batch_id);
 CREATE INDEX resume_uploads_tenant_intent_idx ON resume_uploads (tenant_id, intent_id);
 
-CREATE UNIQUE INDEX resume_uploads_tenant_hash_idx
-    ON resume_uploads (tenant_id, content_hash);
+-- resume_uploads_dedup: non-partitioned lookup table that enforces tenant-scoped
+-- content-hash uniqueness. The unique constraint can't live on resume_uploads
+-- itself because partitioned tables require all partition keys in any unique
+-- index, and we don't want hash uniqueness scoped per partition.
+CREATE TABLE resume_uploads_dedup (
+    tenant_id    UUID NOT NULL,
+    content_hash TEXT NOT NULL,
+    upload_id    UUID NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (tenant_id, content_hash)
+);
+
+CREATE INDEX resume_uploads_dedup_upload_idx
+    ON resume_uploads_dedup (upload_id);
