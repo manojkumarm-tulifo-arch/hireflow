@@ -25,5 +25,21 @@ services:
       timeout: 3s
       retries: 10
 
+  clamav:
+    image: clamav/clamav:1.3
+    container_name: hireflow-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - hireflow-clamavdata:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
 volumes:
   hireflow-pgdata:
+  hireflow-clamavdata:

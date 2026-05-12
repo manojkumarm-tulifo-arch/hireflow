@@ -3,9 +3,10 @@
 
 # Per-context migration tracking — each bounded context owns its schema and
 # its own migration version table.
-MIGRATE_AUTH    := migrate -path migrations/auth         -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_auth"
-MIGRATE_INTENT  := migrate -path migrations/hiringintent -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_hiringintent"
-MIGRATE_POSTING := migrate -path migrations/jobposting   -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_jobposting"
+MIGRATE_AUTH      := migrate -path migrations/auth         -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_auth"
+MIGRATE_INTENT    := migrate -path migrations/hiringintent -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_hiringintent"
+MIGRATE_POSTING   := migrate -path migrations/jobposting   -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_jobposting"
+MIGRATE_SOURCING  := migrate -path migrations/sourcing     -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_sourcing"
 
 tidy:
 	go mod tidy
@@ -29,8 +30,10 @@ migrate-up:
 	$(MIGRATE_AUTH) up
 	$(MIGRATE_INTENT) up
 	$(MIGRATE_POSTING) up
+	$(MIGRATE_SOURCING) up
 
 migrate-down:
+	$(MIGRATE_SOURCING) down 1
 	$(MIGRATE_POSTING) down 1
 	$(MIGRATE_INTENT) down 1
 	$(MIGRATE_AUTH) down 1

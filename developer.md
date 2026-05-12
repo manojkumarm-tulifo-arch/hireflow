@@ -28,6 +28,7 @@ Pick **one** Postgres path — local or Docker. Everything else is the same.
 | golang-migrate | 4.x | `brew install golang-migrate` | `migrate -version` |
 | **Path A — local Postgres** | 14+ | `brew install postgresql@14 && brew services start postgresql@14` | `pg_isready` |
 | **Path B — Docker** | 20+ | `brew install --cask docker` (then launch Docker Desktop) | `docker compose version` |
+| ClamAV (optional) | via Docker | Included in `compose.yml`; only needed for resume-scanning. `make db-up` starts it automatically alongside Postgres. Skip if you don't need the sourcing upload pipeline locally. | `docker compose ps clamav` |
 | `psql` client (any path) | 14+ | bundled with `postgresql@14`, or `brew install libpq` | `psql --version` |
 
 Linux: `apt install golang-go nodejs npm golang-migrate postgresql-client` plus your distro's docker/postgresql packages.
