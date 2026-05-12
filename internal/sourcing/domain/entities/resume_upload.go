@@ -216,3 +216,49 @@ func (u *ResumeUpload) transition(next vo.UploadStatus, errDetail string) error 
 }
 
 func (u *ResumeUpload) touch() { u.updatedAt = time.Now().UTC() }
+
+// RehydrateInput is the input for RehydrateResumeUpload — bypasses event emission
+// for repository reads.
+type RehydrateInput struct {
+	ID            uuid.UUID
+	TenantID      shared.TenantID
+	IntentID      uuid.UUID
+	BatchID       uuid.UUID
+	CandidateID   uuid.UUID
+	StorageKey    string
+	OriginalName  string
+	MimeType      vo.MimeType
+	SizeBytes     int64
+	ContentHash   vo.ContentHash
+	Status        vo.UploadStatus
+	Artifacts     vo.StageArtifacts
+	AttemptCount  int
+	LastError     string
+	NextAttemptAt time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// RehydrateResumeUpload reconstructs an aggregate from a persisted row.
+// Repositories use this; application code must not.
+func RehydrateResumeUpload(in RehydrateInput) *ResumeUpload {
+	return &ResumeUpload{
+		id:            in.ID,
+		tenantID:      in.TenantID,
+		intentID:      in.IntentID,
+		batchID:       in.BatchID,
+		candidateID:   in.CandidateID,
+		storageKey:    in.StorageKey,
+		originalName:  in.OriginalName,
+		mimeType:      in.MimeType,
+		sizeBytes:     in.SizeBytes,
+		contentHash:   in.ContentHash,
+		status:        in.Status,
+		artifacts:     in.Artifacts,
+		attemptCount:  in.AttemptCount,
+		lastError:     in.LastError,
+		nextAttemptAt: in.NextAttemptAt,
+		createdAt:     in.CreatedAt,
+		updatedAt:     in.UpdatedAt,
+	}
+}
