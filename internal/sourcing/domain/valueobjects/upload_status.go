@@ -11,11 +11,11 @@ const (
 	StatusPending     UploadStatus = "Pending"
 	StatusScanning    UploadStatus = "Scanning"
 	StatusExtracting  UploadStatus = "Extracting"
-	StatusParsing     UploadStatus = "Parsing"     // slice 2
-	StatusEmbedding   UploadStatus = "Embedding"   // slice 3
-	StatusScoring     UploadStatus = "Scoring"     // slice 3
-	StatusExtracted   UploadStatus = "Extracted"   // terminal in slice 1
-	StatusScored      UploadStatus = "Scored"      // terminal in slice 3
+	StatusParsing     UploadStatus = "Parsing"   // slice 2
+	StatusEmbedding   UploadStatus = "Embedding" // slice 3
+	StatusScoring     UploadStatus = "Scoring"   // slice 3
+	StatusExtracted   UploadStatus = "Extracted" // terminal in slice 1
+	StatusScored      UploadStatus = "Scored"    // terminal in slice 3
 	StatusFailed      UploadStatus = "Failed"
 	StatusQuarantined UploadStatus = "Quarantined"
 )

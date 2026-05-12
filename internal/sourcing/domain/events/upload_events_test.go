@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 )
 
 func TestResumeUploadAccepted_Shape(t *testing.T) {

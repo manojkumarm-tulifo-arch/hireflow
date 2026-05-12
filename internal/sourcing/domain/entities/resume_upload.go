@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // ErrInvalidTransition is returned when a state transition is not permitted.
@@ -91,8 +91,8 @@ func NewResumeUpload(in UploadInput) (*ResumeUpload, error) {
 }
 
 // Accessors used by repositories, queries, and tests.
-func (u *ResumeUpload) ID() uuid.UUID               { return u.id }
-func (u *ResumeUpload) TenantID() shared.TenantID   { return u.tenantID }
+func (u *ResumeUpload) ID() uuid.UUID                { return u.id }
+func (u *ResumeUpload) TenantID() shared.TenantID    { return u.tenantID }
 func (u *ResumeUpload) IntentID() uuid.UUID          { return u.intentID }
 func (u *ResumeUpload) BatchID() uuid.UUID           { return u.batchID }
 func (u *ResumeUpload) CandidateID() uuid.UUID       { return u.candidateID }

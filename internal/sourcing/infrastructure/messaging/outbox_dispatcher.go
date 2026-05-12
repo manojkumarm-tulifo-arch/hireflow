@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 )
 
 // DispatcherConfig tunes the dispatcher's polling behavior. Zero values use defaults.

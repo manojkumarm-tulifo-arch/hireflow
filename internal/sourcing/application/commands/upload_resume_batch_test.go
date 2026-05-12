@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // inMemSource yields items from a slice for testing.

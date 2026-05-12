@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // PostgresResumeUploadRepository persists ResumeUpload aggregates.

@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // uploadRow mirrors the resume_uploads columns we read/write.

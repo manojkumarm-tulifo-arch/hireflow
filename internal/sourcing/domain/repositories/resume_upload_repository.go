@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 )
 
 // ErrNotFound is returned when an upload is not found.

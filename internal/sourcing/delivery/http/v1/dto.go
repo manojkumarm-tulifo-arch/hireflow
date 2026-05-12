@@ -25,8 +25,8 @@ type BatchItemError struct {
 
 // BatchStatusResponse is the response for GET /resumes/batches/{id}.
 type BatchStatusResponse struct {
-	BatchID  string            `json:"batch_id"`
-	IntentID string            `json:"intent_id"`
+	BatchID  string             `json:"batch_id"`
+	IntentID string             `json:"intent_id"`
 	Summary  BatchStatusSummary `json:"summary"`
 	Items    []BatchStatusItem  `json:"items"`
 }

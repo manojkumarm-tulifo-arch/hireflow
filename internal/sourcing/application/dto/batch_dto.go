@@ -40,7 +40,7 @@ type ItemOutcome struct {
 
 // ItemError carries a structured rejection reason.
 type ItemError struct {
-	Code    string         // "mime_unsupported" | "size_exceeded" | "empty_file" | "storage_write_failed"
+	Code    string // "mime_unsupported" | "size_exceeded" | "empty_file" | "storage_write_failed"
 	Message string
 	Detail  map[string]any // optional structured detail
 }
@@ -53,9 +53,9 @@ type BatchUploadOutput struct {
 
 // BatchStatusDTO is the result of GetBatchStatus.
 type BatchStatusDTO struct {
-	BatchID  uuid.UUID          `json:"batch_id"`
-	IntentID uuid.UUID          `json:"intent_id"`
-	Summary  BatchStatusSummary `json:"summary"`
+	BatchID  uuid.UUID            `json:"batch_id"`
+	IntentID uuid.UUID            `json:"intent_id"`
+	Summary  BatchStatusSummary   `json:"summary"`
 	Items    []BatchStatusItemDTO `json:"items"`
 }
 

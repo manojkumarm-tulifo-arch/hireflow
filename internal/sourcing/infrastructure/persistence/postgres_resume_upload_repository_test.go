@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
-	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
-	"github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
+	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
+	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
+	"github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 )
 
 func newPool(t *testing.T) *pgxpool.Pool {

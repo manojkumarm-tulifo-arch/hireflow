@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // fakeScanner returns a configurable verdict.
@@ -125,10 +125,10 @@ func TestProcess_ScannerTransientError_SchedulesRetry(t *testing.T) {
 	require.NoError(t, repo.Save(context.Background(), u))
 
 	h := commands.NewProcessUploadHandler(commands.ProcessConfig{
-		Repo:      repo,
-		Storage:   store,
-		Scanner:   &fakeScanner{err: errors.New("clamd connection refused")},
-		Extractor: &fakeExtractor{},
+		Repo:         repo,
+		Storage:      store,
+		Scanner:      &fakeScanner{err: errors.New("clamd connection refused")},
+		Extractor:    &fakeExtractor{},
 		RetryBackoff: []time.Duration{30 * time.Second, time.Minute},
 	})
 

@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // GetBatchStatusHandler returns the aggregated status of a batch.

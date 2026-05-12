@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 	"github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // oneShotRepo serves one upload, then ErrNotFound forever.
