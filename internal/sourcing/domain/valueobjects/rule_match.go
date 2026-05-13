@@ -48,16 +48,32 @@ func (r RuleMatchReport) PassedRequired() bool {
 	return r.RequiredPassRate() == 1.0
 }
 
+// ruleMatchJSON is the wire format stored in applications.rule_match JSONB.
+// required_pass_rate is stored explicitly so the Postgres coarse-score ordering
+// query — (rule_match->>'required_pass_rate')::numeric * 100 + ... — can run
+// without re-computing it server-side across all results JSON.
+type ruleMatchJSON struct {
+	Results          []RuleResult `json:"results"`
+	RequiredPassRate float64      `json:"required_pass_rate"`
+}
+
 // Marshal serialises the report to JSON for pgx jsonb storage.
+// The resulting JSON includes a top-level "required_pass_rate" field so that
+// TopByCoarseScoreForIntent can ORDER BY (rule_match->>'required_pass_rate')::numeric.
 func (r RuleMatchReport) Marshal() ([]byte, error) {
-	return json.Marshal(r)
+	return json.Marshal(ruleMatchJSON{
+		Results:          r.Results,
+		RequiredPassRate: r.RequiredPassRate(),
+	})
 }
 
 // UnmarshalRuleMatch deserialises a RuleMatchReport from JSON (pgx jsonb retrieval).
+// It accepts both the legacy format (only "results") and the current format
+// (which also carries "required_pass_rate" for SQL ordering).
 func UnmarshalRuleMatch(b []byte) (RuleMatchReport, error) {
-	var r RuleMatchReport
-	if err := json.Unmarshal(b, &r); err != nil {
+	var wire ruleMatchJSON
+	if err := json.Unmarshal(b, &wire); err != nil {
 		return RuleMatchReport{}, err
 	}
-	return r, nil
+	return RuleMatchReport{Results: wire.Results}, nil
 }

@@ -94,3 +94,34 @@ func TestRuleMatchReport_MarshalIsValidJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, json.Valid(b))
 }
+
+func TestRuleMatchReport_Marshal_IncludesRequiredPassRate(t *testing.T) {
+	r := vo.RuleMatchReport{Results: []vo.RuleResult{
+		{Criterion: makeRule("skill", "Go", true), Passed: true},
+		{Criterion: makeRule("skill", "Kubernetes", true), Passed: false},
+	}}
+	b, err := r.Marshal()
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(b, &raw))
+
+	rate, ok := raw["required_pass_rate"].(float64)
+	require.True(t, ok, "required_pass_rate must be present in marshalled JSON")
+	assert.InDelta(t, 0.5, rate, 0.0001)
+}
+
+func TestRuleMatchReport_UnmarshalRoundTrip_WithPassRate(t *testing.T) {
+	orig := vo.RuleMatchReport{Results: []vo.RuleResult{
+		{Criterion: makeRule("skill", "Go", true), Passed: true},
+		{Criterion: makeRule("location", "remote", false), Passed: false},
+	}}
+	b, err := orig.Marshal()
+	require.NoError(t, err)
+
+	got, err := vo.UnmarshalRuleMatch(b)
+	require.NoError(t, err)
+	require.Len(t, got.Results, 2)
+	assert.Equal(t, orig.Results[0].Criterion.Name, got.Results[0].Criterion.Name)
+	assert.Equal(t, orig.Results[1].Passed, got.Results[1].Passed)
+}
