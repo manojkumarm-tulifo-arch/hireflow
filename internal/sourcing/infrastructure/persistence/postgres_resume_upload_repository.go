@@ -156,9 +156,11 @@ func (r *PostgresResumeUploadRepository) ListByBatch(ctx context.Context, tenant
 // without locking; idempotent stages tolerate the rare two-workers-pick-same-row
 // race that results. Slice 4 swaps this for an UPDATE ... RETURNING that flips
 // status to a "claimed" marker atomically, eliminating overlap.
+// Note: Extracted is no longer excluded (slice 2 makes it an intermediate state
+// that the worker re-claims to run the parsing stage).
 func (r *PostgresResumeUploadRepository) ClaimNextPending(ctx context.Context) (*entities.ResumeUpload, error) {
 	row := r.pool.QueryRow(ctx, selectSQL+`
-		WHERE status NOT IN ('Extracted','Scored','Failed','Quarantined')
+		WHERE status NOT IN ('Parsed','Scored','Failed','Quarantined')
 		  AND next_attempt_at <= now()
 		ORDER BY next_attempt_at ASC
 		LIMIT 1`)
