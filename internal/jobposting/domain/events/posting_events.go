@@ -56,6 +56,27 @@ func (e JobPostingPublished) AggregateID() valueobjects.PostingID { return e.Pos
 func (e JobPostingPublished) Tenant() shared.TenantID            { return e.TenantID }
 func (e JobPostingPublished) At() time.Time                      { return e.OccurredAt }
 
+// JobPostingAmended is raised after a successful AmendJD on a Draft or
+// Published posting. Carries the new JD version so subscribers
+// (sourcing republish, audit log, recruiter notifications) can decide
+// whether to act without rehydrating the aggregate.
+type JobPostingAmended struct {
+	PostingID  valueobjects.PostingID `json:"posting_id"`
+	TenantID   shared.TenantID        `json:"tenant_id"`
+	Version    int                    `json:"version"`
+	OccurredAt time.Time              `json:"occurred_at"`
+}
+
+// NewJobPostingAmended constructs the event.
+func NewJobPostingAmended(id valueobjects.PostingID, tenant shared.TenantID, version int, at time.Time) JobPostingAmended {
+	return JobPostingAmended{PostingID: id, TenantID: tenant, Version: version, OccurredAt: at}
+}
+
+func (e JobPostingAmended) EventName() string                  { return "jobposting.JobPostingAmended" }
+func (e JobPostingAmended) AggregateID() valueobjects.PostingID { return e.PostingID }
+func (e JobPostingAmended) Tenant() shared.TenantID            { return e.TenantID }
+func (e JobPostingAmended) At() time.Time                      { return e.OccurredAt }
+
 // JobPostingClosed is raised when a posting is taken down (filled / cancelled).
 type JobPostingClosed struct {
 	PostingID  valueobjects.PostingID `json:"posting_id"`

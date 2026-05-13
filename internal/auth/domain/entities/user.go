@@ -103,6 +103,24 @@ func HydrateUser(
 // Getters.
 func (u *User) ID() valueobjects.UserID         { return u.id }
 func (u *User) TenantID() shared.TenantID       { return u.tenantID }
+
+// AsRecruiterID projects the user's identity into the cross-context
+// `shared.RecruiterID` type. The auth context owns user identity and
+// represents it as `UserID`; downstream contexts (hiringintent,
+// jobposting, candidate-bgv) refer to the same person as `RecruiterID`.
+// The two carry the same UUID by convention — this method makes that
+// invariant explicit and discoverable instead of relying on every
+// caller knowing to call `shared.ParseRecruiterID(u.ID().String())`.
+//
+// Defensive — `ParseRecruiterID` only fails on a malformed UUID, which
+// can't happen here because UserID is already a parsed UUID. The error
+// is dropped on the floor; if it ever fires the caller has a bigger
+// problem (corrupt aggregate state) than this projection can express.
+func (u *User) AsRecruiterID() shared.RecruiterID {
+	r, _ := shared.ParseRecruiterID(u.id.String())
+	return r
+}
+
 func (u *User) Email() valueobjects.Email       { return u.email }
 func (u *User) Name() string                    { return u.name }
 func (u *User) Status() valueobjects.UserStatus { return u.status }

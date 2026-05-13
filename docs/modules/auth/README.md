@@ -49,6 +49,7 @@ Tokens carry exactly what `internal/shared/infrastructure/auth/claims.go` valida
 ```json
 {
   "tenant_id":    "<UUID>",
+  "subject_kind": "recruiter",
   "recruiter_id": "<UUID>",
   "roles":        ["recruiter"],
   "iss":          "hireflow",
@@ -59,7 +60,7 @@ Tokens carry exactly what `internal/shared/infrastructure/auth/claims.go` valida
 }
 ```
 
-`recruiter_id == User.ID` — we keep the claim name `recruiter_id` to match the existing middleware. When we add other user types, the claim becomes a generic `subject_id` plus a `subject_type`.
+`recruiter_id == User.ID`. The `subject_kind` field is the discriminator shared with sibling services (notably `candidate-bgv`, which also accepts `subject_kind="candidate"` for tokens minted by the upstream candidate identity service). hireflow's verifier accepts only `recruiter` (or empty for backwards compatibility with tokens issued before this field rolled out) — candidate tokens are rejected at the boundary, even when they share secret + issuer.
 
 ## Domain events emitted
 

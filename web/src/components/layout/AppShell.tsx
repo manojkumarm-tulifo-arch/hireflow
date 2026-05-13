@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MessageSquarePlus, ListChecks, Briefcase } from 'lucide-react';
+import { LogOut, MessageSquarePlus, ListChecks, Briefcase, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
 import { cn } from '@/lib/cn';
 
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/intents/new', label: 'Capture Intent', icon: MessageSquarePlus },
   { to: '/intents', label: 'Intents', icon: ListChecks },
   { to: '/postings', label: 'Postings', icon: Briefcase },
+  { to: '/bgv', label: 'BGV Submissions', icon: ShieldCheck },
 ];
 
 export function AppShell() {

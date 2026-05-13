@@ -67,10 +67,13 @@ func NewHeadcount(n int) (Headcount, error) {
 
 func (h Headcount) Value() int { return h.value }
 
-// Skill is a required or nice-to-have skill on the role spec.
+// Skill is a required or nice-to-have skill on the role spec. Construct
+// only via NewSkill so the trim + non-empty invariant is enforced; the
+// fields are private to keep the zero value (`Skill{}`) out of valid
+// state.
 type Skill struct {
-	Name     string
-	Required bool
+	name     string
+	required bool
 }
 
 // NewSkill trims whitespace and rejects empty names.
@@ -79,8 +82,14 @@ func NewSkill(name string, required bool) (Skill, error) {
 	if n == "" {
 		return Skill{}, errors.New("skill name must not be empty")
 	}
-	return Skill{Name: n, Required: required}, nil
+	return Skill{name: n, required: required}, nil
 }
+
+// Name returns the skill name.
+func (s Skill) Name() string { return s.name }
+
+// Required reports whether the skill is required (vs nice-to-have).
+func (s Skill) Required() bool { return s.required }
 
 // RoleSpec is the structured role description on a hiring intent.
 // It is itself a value object — replaced in whole on update, never mutated in place.
@@ -134,7 +143,7 @@ func (r RoleSpec) WorkMode() WorkMode          { return r.workMode }
 // HasRequiredSkill reports whether at least one skill is marked required.
 func (r RoleSpec) HasRequiredSkill() bool {
 	for _, s := range r.skills {
-		if s.Required {
+		if s.required {
 			return true
 		}
 	}

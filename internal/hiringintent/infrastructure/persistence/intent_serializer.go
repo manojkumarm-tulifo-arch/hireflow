@@ -74,7 +74,7 @@ func serialize(h *entities.HiringIntent) (intentRow, error) {
 	skills := role.Skills()
 	skillP := make([]skillPayload, len(skills))
 	for i, s := range skills {
-		skillP[i] = skillPayload{Name: s.Name, Required: s.Required}
+		skillP[i] = skillPayload{Name: s.Name(), Required: s.Required()}
 	}
 	roleBytes, err := json.Marshal(rolePayload{
 		Title:      role.Title(),
@@ -91,7 +91,7 @@ func serialize(h *entities.HiringIntent) (intentRow, error) {
 	intentSigs := h.IntentSignals()
 	intentSigP := make([]intentSignalPayload, len(intentSigs))
 	for i, s := range intentSigs {
-		intentSigP[i] = intentSignalPayload{Label: s.Label, Value: s.Value, Level: s.Level}
+		intentSigP[i] = intentSignalPayload{Label: s.Label(), Value: s.Value(), Level: s.Level()}
 	}
 	intentSigBytes, err := json.Marshal(intentSigP)
 	if err != nil {
@@ -101,7 +101,7 @@ func serialize(h *entities.HiringIntent) (intentRow, error) {
 	trustSigs := h.TrustSignals()
 	trustSigP := make([]trustSignalPayload, len(trustSigs))
 	for i, s := range trustSigs {
-		trustSigP[i] = trustSignalPayload{Label: s.Label, Value: s.Value, Required: s.Required}
+		trustSigP[i] = trustSignalPayload{Label: s.Label(), Value: s.Value(), Required: s.Required()}
 	}
 	trustSigBytes, err := json.Marshal(trustSigP)
 	if err != nil {

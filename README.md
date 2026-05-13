@@ -4,7 +4,7 @@ AI-driven recruiter operating system. Captures hiring intent from natural langua
 
 ## Status
 
-Three bounded contexts live; one stub. End-to-end recruiter flow works against real Postgres: sign up → request hiring intent → confirm → draft posting → publish to channels.
+Three bounded contexts live; one stub. End-to-end recruiter flow works against real Postgres: sign up → request hiring intent → confirm → draft posting → publish to channels. The web UI also hosts the **BGV reviewer queue** (sidebar: "BGV Submissions"), which talks to the sibling [`candidate-bgv`](../candidate-bgv) service on `:8081` over a Vite proxy — recruiters use the same JWT for both.
 
 | Context | Owns | Status |
 |---|---|---|
@@ -12,6 +12,7 @@ Three bounded contexts live; one stub. End-to-end recruiter flow works against r
 | `hiringintent` | Recruiter's intent to hire (role, signals, trust requirements). Source of truth for *why* and *what*. Includes Claude-backed conversational extraction. | **Live** |
 | `jobposting` | Published JD lifecycle, source distribution, versioning. Drafted automatically from `IntentConfirmed` via an in-process event bus. | **Live** |
 | `sourcing` | Resume ingestion + parsing + LLM-driven Candidate × Intent scoring with rule chips + Claude judge for top-K (slices 1+2+3). Recruiter dashboard actions coming in slice 4. | **Live (matched scoring)** |
+| `bgv` (cross-repo, in `candidate-bgv`) | Background-verification submissions. **FE lives here** under `web/src/features/bgv/`; BE runs on `:8081`. Recruiter views queue, opens submissions, downloads docs, reopens for fixes. | **Live (FE) / live (BE)** |
 
 ## Project layout
 

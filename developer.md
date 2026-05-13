@@ -6,14 +6,17 @@ Step-by-step path from a fresh checkout to a running hireflow stack on your lapt
 
 ## 1. What you're running
 
-A monorepo with two pieces:
+A monorepo with two pieces, plus an **optional sibling service** for the BGV reviewer queue:
 
 | Folder | Stack | Default port |
 |---|---|---|
 | `./` (Go API) | Go 1.23+, chi, pgx, zerolog, JWT (HS256) | `8080` |
-| `./web` (React FE) | Vite + React 18 + TypeScript + Tailwind | `5173` (proxies `/api` → `8080`) |
+| `./web` (React FE) | Vite + React 18 + TypeScript + Tailwind | `5173` (proxies `/api` → `8080`, **`/api/v1/bgv` → `8081`**) |
+| `~/hustle/code/theo/candidate-bgv` (sibling repo) | Same stack, separate Postgres DB | `8081` |
 
 Backend exposes three bounded contexts: `auth` (public), `hiringintent`, and `jobposting` (both bearer-protected). Postgres holds three per-context schemas, three outboxes, and three migration tracking tables.
+
+The recruiter web app **also includes a BGV reviewer queue** under `/bgv` (sidebar: "BGV Submissions"). Those screens call the sibling [candidate-bgv](../candidate-bgv) service on `:8081`, reusing the recruiter JWT this service issues (same `JWT_ACCESS_SECRET` + `JWT_ISSUER` on both sides). **For full end-to-end testing, bring both API processes up.** If you skip candidate-bgv, the rest of the recruiter flow still works — but `/bgv` will 404 every request.
 
 ---
 
@@ -196,7 +199,31 @@ cd web
 npm run dev
 ```
 
-Vite serves at `http://localhost:5173` and proxies `/api/*` → `http://localhost:8080`. Open the URL in your browser — you'll be redirected to `/login`.
+Vite serves at `http://localhost:5173`. Proxy rules (in declaration order — Vite takes the first prefix match):
+
+1. `/api/v1/bgv/*` → `http://localhost:8081` (candidate-bgv)
+2. `/api/*`        → `http://localhost:8080` (this service)
+
+Open the URL in your browser — you'll be redirected to `/login`.
+
+### 5.1 (Optional) Run candidate-bgv for the BGV reviewer queue
+
+The "BGV Submissions" sidebar item calls the sibling service. To bring it up alongside hireflow, in a third terminal:
+
+```bash
+cd ~/hustle/code/theo/candidate-bgv
+make stack          # idempotent: brings up Postgres + applies migrations
+make run            # API on :8081, reuses the same JWT_ACCESS_SECRET as hireflow
+```
+
+To populate the queue with a test submission:
+
+```bash
+# In candidate-bgv:
+make seed           # mints a fresh INVITED submission, prints the candidate URL
+```
+
+You can then either walk that candidate URL through to Submit (in `candidate-bgv/web` on `:5180`) for a SUBMITTED row in your queue, or leave it INVITED and filter the queue by that pill. Skipping this step is fine for testing intents/postings/auth in isolation — the BGV screens just won't have data.
 
 ---
 
@@ -331,6 +358,22 @@ curl -s -X POST http://localhost:8080/api/v1/intents/extract \
 
 If you signed up via the FE, you're already in. If you signed up via curl, the FE has its own session — use the FE login flow there. The two paths are independent (each starts its own session).
 
+### Reviewer-side BGV queue
+
+> **Don't skip this when smoke-testing end-to-end.** The recruiter UI now hosts the candidate-bgv reviewer surface, and it talks to a separate process. Easy to forget that `/bgv` is failing because `:8081` isn't running, not because the FE is broken.
+
+Pre-req: candidate-bgv API up on `:8081` (see §5.1) and at least one submission in its DB (`make seed` in that repo).
+
+1. In the recruiter web (`:5173`), click **BGV Submissions** in the left sidebar.
+2. The queue should list your seeded submission(s). Filter pills at the top scope by lifecycle state (INVITED / IN_PROGRESS / SUBMITTED / UNDER_REVIEW / VERIFIED / FLAGGED).
+3. Click into a row → the detail page renders: candidate header, lifecycle stamps, Personal / Address / Emergency / Documents / References / Digital / Declarations cards, and the event timeline at the bottom.
+4. **Document download** — captured docs render with a Download button. Clicking auth-fetches the file (works for both the local-fs adapter, which streams bytes inline, and the S3 adapter, which 302s to a pre-signed URL).
+5. **Reopen** — for SUBMITTED / UNDER_REVIEW / FLAGGED submissions, the **Reopen** button appears in the header. Opens a modal; reason is required (BE invariant). On success, status flips back to IN_PROGRESS and a `bgv.BGVReopened` event lands on the timeline with the reason inline.
+6. Common smoke-test failures:
+   - **Empty queue** — usually the candidate-bgv API isn't running, or hireflow's tenant doesn't match the seeded submission's tenant. Check that both services share the same `JWT_ACCESS_SECRET` and that the tenant in your recruiter JWT matches the one used by `make seed`.
+   - **401 / 403** — JWT secret mismatch, or recruiter JWT was issued with `subject_kind=candidate` somewhere. Re-sign in.
+   - **Document download fails with `download_failed`** — the file actually missing on disk (LocalFile) or the bucket (S3). Check candidate-bgv's storage backend env vars.
+
 ---
 
 ## 8. Common operations
@@ -346,7 +389,9 @@ If you signed up via the FE, you're already in. If you signed up via curl, the F
 | Reset migrations only | `make migrate-down && make migrate-up` |
 | Wipe DB (Path A) | `dropdb hireflow && createdb hireflow && make migrate-up` |
 | Wipe DB (Path B) | `make db-reset && make migrate-up` |
-| Tail logs as JSON | `make run | jq -c .` |
+| Tail logs as JSON | `make run \| jq -c .` |
+| Bring up the BGV reviewer dependency | `(cd ~/hustle/code/theo/candidate-bgv && make stack && make run)` |
+| Seed a BGV submission for the recruiter queue | `(cd ~/hustle/code/theo/candidate-bgv && make seed)` |
 
 ---
 
@@ -426,6 +471,9 @@ See `docs/modules/<context>/README.md` for context-specific design notes and `do
 | Docker: port 5433 already allocated | Something else on 5433 — `lsof -ti:5433 \| xargs kill`, or change the port mapping in `compose.yml` |
 | Docker: data survived `make db-down` | That's by design — `make db-down` keeps the volume; use `make db-reset` for a true wipe |
 | `go: cannot find main module` | You're outside the repo root; `cd` into `hireflow/` |
+| `/bgv` returns 404 / network error | Sibling candidate-bgv API on `:8081` isn't running — see §5.1 |
+| `/bgv` queue is empty after sign-in | Either no submissions exist (`make seed` in candidate-bgv) or your recruiter's `tenant_id` doesn't match the seeded submission's tenant — both repos must use the same tenant; the dev seed uses the `demo` tenant by default |
+| BGV detail page renders but document Download fails | Storage backend mismatch — candidate-bgv ran with `BGV_STORAGE_BACKEND=s3` but bucket creds are wrong, or `local` files were wiped under `var/bgv-documents/`. Check candidate-bgv's `make run` log |
 
 ---
 
@@ -444,6 +492,11 @@ make run
 # Terminal 2 — frontend
 cd hireflow/web
 npm run dev
+
+# Terminal 3 — sibling candidate-bgv API (only if you're touching /bgv;
+# safe to skip if you're working on intents / postings / auth)
+cd ~/hustle/code/theo/candidate-bgv
+make stack && make run
 
 # Sign in via the FE — visit http://localhost:5173, "Create an account",
 # read the OTP from the make-run terminal log, type it in. Done.
