@@ -62,3 +62,18 @@ func (e ResumeExtracted) EventName() string       { return "sourcing.ResumeExtra
 func (e ResumeExtracted) AggregateID() uuid.UUID  { return e.UploadID }
 func (e ResumeExtracted) Tenant() shared.TenantID { return e.TenantID }
 func (e ResumeExtracted) At() time.Time           { return e.OccurredAt }
+
+// ResumeParsed is emitted when parsing succeeds and a candidate has been linked.
+// This is the slice-2 terminal event for the ResumeUpload aggregate; slice 3's
+// scoring consumer subscribes to it.
+type ResumeParsed struct {
+	UploadID    uuid.UUID       `json:"upload_id"`
+	TenantID    shared.TenantID `json:"tenant_id"`
+	CandidateID uuid.UUID       `json:"candidate_id"`
+	OccurredAt  time.Time       `json:"occurred_at"`
+}
+
+func (e ResumeParsed) EventName() string       { return "sourcing.ResumeParsed" }
+func (e ResumeParsed) AggregateID() uuid.UUID  { return e.UploadID }
+func (e ResumeParsed) Tenant() shared.TenantID { return e.TenantID }
+func (e ResumeParsed) At() time.Time           { return e.OccurredAt }

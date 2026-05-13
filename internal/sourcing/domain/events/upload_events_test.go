@@ -52,3 +52,14 @@ func TestResumeExtracted_Shape(t *testing.T) {
 	}
 	assert.Equal(t, "sourcing.ResumeExtracted", ev.EventName())
 }
+
+func TestResumeParsed_Shape(t *testing.T) {
+	ev := events.ResumeParsed{
+		UploadID:    uuid.New(),
+		TenantID:    shared.NewTenantID(),
+		CandidateID: uuid.New(),
+		OccurredAt:  time.Now().UTC(),
+	}
+	assert.Equal(t, "sourcing.ResumeParsed", ev.EventName())
+	assert.Equal(t, ev.UploadID, ev.AggregateID())
+}
