@@ -73,7 +73,7 @@ Trust auth, no password — your OS user is the superuser.
 make db-up         # starts hireflow-postgres container, waits for healthy
 ```
 
-The container exposes Postgres on **5433** (not 5432) so it doesn't collide with a local install. Other handy targets:
+The container exposes Postgres on **5433** (not 5432) so it doesn't collide with a local install. The image is `pgvector/pgvector:pg14` (a drop-in replacement for `postgres:14` that ships the pgvector extension binaries). Other handy targets:
 
 | Target | What it does |
 |---|---|

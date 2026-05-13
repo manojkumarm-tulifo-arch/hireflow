@@ -8,7 +8,7 @@ name: hireflow
 
 services:
   postgres:
-    image: postgres:14-alpine
+    image: pgvector/pgvector:pg14
     container_name: hireflow-postgres
     restart: unless-stopped
     environment:
