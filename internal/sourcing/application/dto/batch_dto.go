@@ -2,7 +2,9 @@
 package dto
 
 import (
+	"encoding/json"
 	"io"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -75,4 +77,24 @@ type BatchStatusItemDTO struct {
 	Status    string    `json:"status"`
 	Attempt   int       `json:"attempt"`
 	LastError string    `json:"last_error,omitempty"`
+}
+
+// CandidateDetailDTO is the result of GetCandidate.
+type CandidateDetailDTO struct {
+	ID          uuid.UUID         `json:"id"`
+	ContentHash string            `json:"content_hash"`
+	Personal    CandidatePersonal `json:"personal"`
+	Location    string            `json:"location,omitempty"`
+	Headline    string            `json:"headline,omitempty"`
+	Profile     json.RawMessage   `json:"profile"` // the full parsed profile (PII still in cleartext after server-side decrypt)
+	Source      string            `json:"source"`
+	CreatedAt   time.Time         `json:"created_at"`
+}
+
+// CandidatePersonal is the decrypted PII surface returned only on the
+// detail endpoint. List endpoints (slice 4) return a masked variant.
+type CandidatePersonal struct {
+	FullName string `json:"full_name,omitempty"`
+	Email    string `json:"email,omitempty"`
+	Phone    string `json:"phone,omitempty"`
 }
