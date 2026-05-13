@@ -133,6 +133,18 @@ func decodeEvent(name string, aggID uuid.UUID, tenant shared.TenantID, at time.T
 			return nil, err
 		}
 		return e, nil
+	case "sourcing.ResumeParsed":
+		var e events.ResumeParsed
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	case "sourcing.CandidateParsed":
+		var e events.CandidateParsed
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
 	}
 	return nil, fmt.Errorf("unknown event name: %s", name)
 }

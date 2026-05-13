@@ -50,6 +50,14 @@ func (h *ProcessUploadHandler) Handle(ctx context.Context, u *entities.ResumeUpl
 	case vo.StatusExtracting:
 		return h.runExtracting(ctx, u)
 	case vo.StatusExtracted, vo.StatusParsing:
+		// Defensive: if the handler isn't configured for parsing (slice-1-only
+		// deployment, or a misconfigured prod where the parser env vars are
+		// missing), treat Extracted as terminal rather than crashing on a
+		// nil-port deref. The worker will keep re-claiming the row until
+		// next_attempt_at passes; the no-op short-circuits that loop.
+		if h.cfg.Parser == nil || h.cfg.CandidateRepo == nil {
+			return nil
+		}
 		return h.runParsing(ctx, u)
 	default:
 		return fmt.Errorf("process: unexpected status %s", u.Status())
