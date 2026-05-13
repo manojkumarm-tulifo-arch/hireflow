@@ -78,6 +78,13 @@ func newPgvectorPool(t *testing.T) *pgxpool.Pool {
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	// Per-test isolation: drop all sourcing+hiringintent rows so e2e tests
+	// don't see each other's data.
+	_, err = pool.Exec(context.Background(), `
+		TRUNCATE applications, hiring_intent_embeddings, judge_jobs,
+		         resume_uploads, resume_uploads_dedup, candidates,
+		         sourcing_outbox, hiring_intents CASCADE`)
+	require.NoError(t, err)
 	return pool
 }
 
@@ -91,7 +98,7 @@ func insertHiringIntentForSlice3(t *testing.T, pool *pgxpool.Pool, intentID, ten
 		"skills": [
 			{"name": "Go", "required": true}
 		],
-		"experience": {"min": 3, "max": 10},
+		"experience": {"min": 0, "max": 10},
 		"headcount": 1,
 		"locations": ["Bangalore"],
 		"work_mode": "hybrid"

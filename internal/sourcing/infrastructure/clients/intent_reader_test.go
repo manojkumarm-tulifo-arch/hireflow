@@ -25,6 +25,13 @@ func newPool(t *testing.T) *pgxpool.Pool {
 	pool, err := pgxpool.New(context.Background(), url)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
+	// Per-test isolation: drop all sourcing+hiringintent rows so tests don't
+	// see each other's data.
+	_, err = pool.Exec(context.Background(), `
+		TRUNCATE applications, hiring_intent_embeddings, judge_jobs,
+		         resume_uploads, resume_uploads_dedup, candidates,
+		         sourcing_outbox, hiring_intents CASCADE`)
+	require.NoError(t, err)
 	return pool
 }
 

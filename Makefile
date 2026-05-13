@@ -24,7 +24,12 @@ test-unit:
 	go test ./internal/... -race -count=1
 
 test-integration:
-	go test ./tests/... -race -count=1 -tags=integration
+	# -p 1 serializes packages so the per-test TRUNCATE in newPool helpers
+	# doesn't race across the persistence / clients / tests packages.
+	go test ./internal/sourcing/infrastructure/persistence/... \
+	        ./internal/sourcing/infrastructure/clients/... \
+	        ./tests/... \
+	        -race -count=1 -tags=integration -p 1
 
 migrate-up:
 	$(MIGRATE_AUTH) up

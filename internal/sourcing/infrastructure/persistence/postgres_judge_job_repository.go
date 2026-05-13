@@ -121,9 +121,15 @@ SELECT id, tenant_id, application_id, intent_id,
        next_attempt_at, enqueued_at, completed_at
 FROM judge_jobs`
 
-// ClaimNextPending picks one job with status=Pending (or Running-but-stale)
-// and next_attempt_at <= now(), advances it to Running, and returns it.
-// Higher coarse_score is prioritised — the most promising candidates are judged first.
+// ClaimNextPending picks one job with status=Pending and next_attempt_at <= now(),
+// advances it to Running, and returns it. Higher coarse_score is prioritised —
+// the most promising candidates are judged first.
+//
+// Crashed workers leave stale Running rows; recovering those is out of scope for
+// slice 3 and tracked as a follow-up (a reaper that flips long-Running jobs back
+// to Pending). Without that, claiming `Running` here would re-claim the same row
+// indefinitely.
+//
 // Returns ErrJudgeJobNotFound when no work is ready.
 func (r *PostgresJudgeJobRepository) ClaimNextPending(ctx context.Context) (*entities.JudgeJob, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -133,7 +139,7 @@ func (r *PostgresJudgeJobRepository) ClaimNextPending(ctx context.Context) (*ent
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	row := tx.QueryRow(ctx, judgeJobSelectSQL+`
-		WHERE status IN ('Pending', 'Running')
+		WHERE status = 'Pending'
 		  AND next_attempt_at <= now()
 		ORDER BY coarse_score DESC, enqueued_at ASC
 		LIMIT 1`)
@@ -143,10 +149,14 @@ func (r *PostgresJudgeJobRepository) ClaimNextPending(ctx context.Context) (*ent
 		return nil, err // includes ErrJudgeJobNotFound
 	}
 
-	// Advance to Running regardless of current status (handles stale Running rows).
+	// Advance Pending → Running. The DB UPDATE persists; the entity's own
+	// transition keeps the in-memory state consistent with the row.
 	_, err = tx.Exec(ctx, `UPDATE judge_jobs SET status='Running' WHERE id=$1`, j.ID())
 	if err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
+	}
+	if err := j.BeginRunning(); err != nil {
+		return nil, fmt.Errorf("transition entity to Running: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

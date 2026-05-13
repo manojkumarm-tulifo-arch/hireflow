@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -73,7 +74,9 @@ func (h *ScoreIntentHandler) Handle(ctx context.Context, in ScoreIntentInput) er
 	if err != nil {
 		return fmt.Errorf("score_intent: find intent: %w", err)
 	}
-	if intent.Status != "Confirmed" {
+	// hiring_intents persists status as upper-case enum ('CONFIRMED'); compare
+	// case-insensitively so the contract matches the schema's CHECK constraint.
+	if !strings.EqualFold(intent.Status, "Confirmed") {
 		return fmt.Errorf("score_intent: intent %s is not Confirmed (status=%s)", in.IntentID, intent.Status)
 	}
 

@@ -80,8 +80,8 @@ func TestJudgeJobClaimNextPending_ReturnsErrNotFoundWhenEmpty(t *testing.T) {
 	// (There is no WHERE tenant_id clause in ClaimNextPending, so we test against
 	// an empty table state by relying on the test DB being cleared or jobs not
 	// having next_attempt_at in the past by default.)
-	// More robustly: mark any pending jobs as Done before asserting.
-	_, _ = pool.Exec(context.Background(), `UPDATE judge_jobs SET status='Done' WHERE status='Pending'`)
+	// Drain any pending/running jobs left over from sibling tests before asserting.
+	_, _ = pool.Exec(context.Background(), `UPDATE judge_jobs SET status='Done' WHERE status IN ('Pending','Running')`)
 
 	_, err := repo.ClaimNextPending(context.Background())
 	assert.ErrorIs(t, err, repositories.ErrJudgeJobNotFound)

@@ -61,15 +61,12 @@ func NewJudgeApplicationHandler(
 }
 
 // Handle processes one JudgeJob.
+//
+// Precondition: the job has already been transitioned to Running by
+// JudgeJobRepository.ClaimNextPending (atomic in a single tx). The handler
+// does not re-issue BeginRunning — doing so would be a double state-change
+// against the already-Running aggregate.
 func (h *JudgeApplicationHandler) Handle(ctx context.Context, job *entities.JudgeJob) error {
-	// Step 1: mark the job as running.
-	if err := job.BeginRunning(); err != nil {
-		return fmt.Errorf("judge_application: begin running: %w", err)
-	}
-	if err := h.judgeJobRepo.Save(ctx, job); err != nil {
-		return fmt.Errorf("judge_application: save running job: %w", err)
-	}
-
 	// Step 2: load Application.
 	app, err := h.appRepo.FindByID(ctx, job.TenantID(), job.ApplicationID())
 	if err != nil {
