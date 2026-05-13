@@ -11,7 +11,7 @@ Three bounded contexts live; one stub. End-to-end recruiter flow works against r
 | `auth` | User identity, OTP signup/signin, JWT access tokens (claim-shape compatible with shared middleware), refresh-token rotation | **Live** |
 | `hiringintent` | Recruiter's intent to hire (role, signals, trust requirements). Source of truth for *why* and *what*. Includes Claude-backed conversational extraction. | **Live** |
 | `jobposting` | Published JD lifecycle, source distribution, versioning. Drafted automatically from `IntentConfirmed` via an in-process event bus. | **Live** |
-| `sourcing` | Resume ingestion + virus-scan + text extraction + LLM parsing → tenant-scoped `Candidate` aggregate (slices 1+2). Match scoring + recruiter dashboard coming in slices 3–4. | **Live (parsed-profile)** |
+| `sourcing` | Resume ingestion + parsing + LLM-driven Candidate × Intent scoring with rule chips + Claude judge for top-K (slices 1+2+3). Recruiter dashboard actions coming in slice 4. | **Live (matched scoring)** |
 
 ## Project layout
 
