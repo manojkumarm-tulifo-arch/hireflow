@@ -8,6 +8,7 @@ import "encoding/json"
 type StageArtifacts struct {
 	ExtractedTextValue string `json:"extracted_text,omitempty"`
 	PageCount          int    `json:"page_count,omitempty"`
+	ParsedProfileJSON  string `json:"parsed_profile,omitempty"`
 }
 
 // NewStageArtifacts returns a zero-value artifacts bag.
@@ -25,6 +26,19 @@ func (a StageArtifacts) ExtractedText() (string, int, bool) {
 		return "", 0, false
 	}
 	return a.ExtractedTextValue, a.PageCount, true
+}
+
+// SetParsedProfile records the parser's output as a JSON byte slice.
+func (a *StageArtifacts) SetParsedProfile(b []byte) {
+	a.ParsedProfileJSON = string(b)
+}
+
+// ParsedProfile returns the parsed profile JSON, or ok=false if Parsing hasn't run.
+func (a StageArtifacts) ParsedProfile() ([]byte, bool) {
+	if a.ParsedProfileJSON == "" {
+		return nil, false
+	}
+	return []byte(a.ParsedProfileJSON), true
 }
 
 // Marshal serializes to JSON for the stage_artifacts jsonb column.

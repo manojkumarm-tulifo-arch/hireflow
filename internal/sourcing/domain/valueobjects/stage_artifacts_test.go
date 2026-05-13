@@ -35,3 +35,23 @@ func TestUnmarshalStageArtifacts_AcceptsEmptyJSON(t *testing.T) {
 	_, _, ok := a.ExtractedText()
 	assert.False(t, ok)
 }
+
+func TestStageArtifacts_ParsedProfile_RoundTrip(t *testing.T) {
+	a := vo.NewStageArtifacts()
+	a.SetParsedProfile([]byte(`{"schema_version":1}`))
+
+	out, err := a.Marshal()
+	require.NoError(t, err)
+
+	got, err := vo.UnmarshalStageArtifacts(out)
+	require.NoError(t, err)
+	b, ok := got.ParsedProfile()
+	require.True(t, ok)
+	assert.Contains(t, string(b), `"schema_version":1`)
+}
+
+func TestStageArtifacts_ParsedProfile_EmptyByDefault(t *testing.T) {
+	a := vo.NewStageArtifacts()
+	_, ok := a.ParsedProfile()
+	assert.False(t, ok)
+}
