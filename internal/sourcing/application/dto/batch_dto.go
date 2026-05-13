@@ -98,3 +98,37 @@ type CandidatePersonal struct {
 	Email    string `json:"email,omitempty"`
 	Phone    string `json:"phone,omitempty"`
 }
+
+// ApplicationListItemDTO is one row in the GET /intents/{id}/applications response.
+// CandidateName is masked (e.g. "A***") — the raw decrypted name is never exposed here.
+type ApplicationListItemDTO struct {
+	ApplicationID  uuid.UUID       `json:"application_id"`
+	CandidateID    uuid.UUID       `json:"candidate_id"`
+	CandidateName  string          `json:"candidate_name"` // masked: first char + "***"
+	Headline       string          `json:"headline,omitempty"`
+	Location       string          `json:"location,omitempty"`
+	Status         string          `json:"status"`
+	OverallScore   *float64        `json:"overall_score,omitempty"`
+	ScoreBand      *string         `json:"score_band,omitempty"`
+	EmbeddingScore *float64        `json:"embedding_score,omitempty"`
+	RuleMatch      json.RawMessage `json:"rule_match,omitempty"`
+	LLMJudgment    json.RawMessage `json:"llm_judgment,omitempty"` // populated only for judged rows
+	ScoredAt       *time.Time      `json:"scored_at,omitempty"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+// ApplicationListResponse is the full GET /intents/{id}/applications response.
+type ApplicationListResponse struct {
+	Items  []ApplicationListItemDTO `json:"items"`
+	Total  int                      `json:"total"`
+	Facets ApplicationListFacets   `json:"facets"`
+}
+
+// ApplicationListFacets holds per-score-band counts for Applications that have
+// been LLM-judged (i.e. ScoreBand is non-nil). Applications that are Scored
+// but not yet judged are not counted in any band.
+type ApplicationListFacets struct {
+	Strong   int `json:"strong"`
+	Moderate int `json:"moderate"`
+	Weak     int `json:"weak"`
+}
