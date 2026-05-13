@@ -108,6 +108,20 @@ export ANTHROPIC_MODEL="claude-opus-4-7" # optional, default claude-opus-4-7
 export ANTHROPIC_TIMEOUT="30s"           # optional, default 30s
 ```
 
+#### Sourcing pipeline env vars
+
+| Variable                | Default            | Notes                                                     |
+|-------------------------|--------------------|-----------------------------------------------------------|
+| SOURCING_STORAGE_PATH   | `/tmp/hireflow-resumes` | Root directory for local resume file storage.        |
+| SOURCING_MAX_FILE_BYTES | `10485760` (10 MB) | Per-file upload size cap.                                 |
+| SOURCING_SCANNER_BACKEND | `noop`            | `noop` or `clamd`. Set `clamd` to enable ClamAV scanning. |
+| SOURCING_SCANNER_ADDR   | `tcp://localhost:3310` | ClamAV address (only used when backend is `clamd`).  |
+| SOURCING_WORKER_POOL    | `4`                | Number of concurrent processing worker goroutines.        |
+| SOURCING_PII_DEK        | (required)         | 64-hex AES-256 key. Generate with `openssl rand -hex 32`. |
+| SOURCING_OCR_THRESHOLD  | 50                 | Char threshold below which OCR fallback runs              |
+| SOURCING_PARSER_BACKEND | claude             | (only option in slice 2)                                  |
+| SOURCING_OCR_BACKEND    | claude             | (only option in slice 2)                                  |
+
 Switching paths later is just changing `DATABASE_URL` and re-running `make migrate-up` — both DBs can coexist on different ports.
 
 Reload your shell or `source ~/.zshrc` so the variables are picked up.

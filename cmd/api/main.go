@@ -47,7 +47,10 @@ import (
 	sourcingqueries "github.com/hustle/hireflow/internal/sourcing/application/queries"
 	sourcinghttp "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	sourcingsvc "github.com/hustle/hireflow/internal/sourcing/domain/services"
+	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
+	sourcingocr "github.com/hustle/hireflow/internal/sourcing/infrastructure/ocr"
+	sourcingparsing "github.com/hustle/hireflow/internal/sourcing/infrastructure/parsing"
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
 	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
@@ -147,22 +150,46 @@ func main() {
 
 	extractor := sourcingtext.NewSimple()
 
+	// PII encryption — slice 2.
+	dekHex := os.Getenv("SOURCING_PII_DEK")
+	if dekHex == "" {
+		logger.Fatal().Msg("SOURCING_PII_DEK is required (64 hex chars / 32 bytes)")
+	}
+	piiEnc, err := sourcingenc.NewLocalDevDEK(dekHex)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("init PII encryptor")
+	}
+
+	// Resume parser (Claude tool-use) and Claude vision OCR.
+	resumeParser := sourcingparsing.NewAnthropicParser(anthropicClient.SDK(), anthropicCfg.Model)
+	ocrExtractor := sourcingocr.NewClaudeVision(anthropicClient.SDK(), anthropicCfg.Model)
+
+	// Candidate repository + detail-query handler.
+	candidateRepo := sourcingpersist.NewPostgresCandidateRepository(pool)
+	candidateHandler := sourcingqueries.NewGetCandidateHandler(candidateRepo, piiEnc)
+
 	sourcingRepo := sourcingpersist.NewPostgresResumeUploadRepository(pool)
 	uploadHandler := sourcingcommands.NewUploadResumeBatchHandler(
 		sourcingRepo, resumeStorage,
 		sourcingcommands.UploadConfig{MaxFileBytes: getenvInt64("SOURCING_MAX_FILE_BYTES", 10*1024*1024)},
 	)
 	processHandler := sourcingcommands.NewProcessUploadHandler(sourcingcommands.ProcessConfig{
-		Repo: sourcingRepo, Storage: resumeStorage,
-		Scanner: scanner, Extractor: extractor,
+		Repo:          sourcingRepo,
+		Storage:       resumeStorage,
+		Scanner:       scanner,
+		Extractor:     extractor,
+		Parser:        resumeParser,
+		OCR:           ocrExtractor,
+		Encryptor:     piiEnc,
+		CandidateRepo: candidateRepo,
+		OCRThreshold:  getenvInt("SOURCING_OCR_THRESHOLD", 50),
 		RetryBackoff: []time.Duration{
 			1 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour, 4 * time.Hour,
 		},
 	})
 	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
 
-	// TODO(T14): wire a real GetCandidateHandler once CandidateRepository + PIIEncryptor are wired.
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, nil, logger)
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, logger)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})
