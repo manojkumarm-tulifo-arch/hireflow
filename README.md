@@ -11,7 +11,7 @@ Three bounded contexts live; one stub. End-to-end recruiter flow works against r
 | `auth` | User identity, OTP signup/signin, JWT access tokens (claim-shape compatible with shared middleware), refresh-token rotation | **Live** |
 | `hiringintent` | Recruiter's intent to hire (role, signals, trust requirements). Source of truth for *why* and *what*. Includes Claude-backed conversational extraction. | **Live** |
 | `jobposting` | Published JD lifecycle, source distribution, versioning. Drafted automatically from `IntentConfirmed` via an in-process event bus. | **Live** |
-| `sourcing` | Resume ingestion from connected sources, parsing, dedup, match scoring | Pending |
+| `sourcing` | Resume ingestion + parsing + LLM-driven Candidate × Intent scoring with rule chips + Claude judge for top-K (slices 1+2+3). Recruiter dashboard actions coming in slice 4. | **Live (matched scoring)** |
 | `bgv` (cross-repo, in `candidate-bgv`) | Background-verification submissions. **FE lives here** under `web/src/features/bgv/`; BE runs on `:8081`. Recruiter views queue, opens submissions, downloads docs, reopens for fixes. | **Live (FE) / live (BE)** |
 
 ## Project layout

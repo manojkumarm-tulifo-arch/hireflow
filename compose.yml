@@ -8,7 +8,7 @@ name: hireflow
 
 services:
   postgres:
-    image: postgres:14-alpine
+    image: pgvector/pgvector:pg14
     container_name: hireflow-postgres
     restart: unless-stopped
     environment:
@@ -25,5 +25,21 @@ services:
       timeout: 3s
       retries: 10
 
+  clamav:
+    image: clamav/clamav:1.4-debian
+    container_name: hireflow-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - hireflow-clamavdata:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
 volumes:
   hireflow-pgdata:
+  hireflow-clamavdata:

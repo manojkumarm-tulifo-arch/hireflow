@@ -1,0 +1,3 @@
+-- We deliberately do NOT drop the extension on down — other contexts may
+-- start using it. Migration 000006's down drops the only consumer (applications
+-- + hiring_intent_embeddings), which is sufficient for a clean rollback.

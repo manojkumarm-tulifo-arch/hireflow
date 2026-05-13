@@ -31,6 +31,7 @@ Pick **one** Postgres path — local or Docker. Everything else is the same.
 | golang-migrate | 4.x | `brew install golang-migrate` | `migrate -version` |
 | **Path A — local Postgres** | 14+ | `brew install postgresql@14 && brew services start postgresql@14` | `pg_isready` |
 | **Path B — Docker** | 20+ | `brew install --cask docker` (then launch Docker Desktop) | `docker compose version` |
+| ClamAV (optional) | via Docker | Included in `compose.yml`; only needed for resume-scanning. `make db-up` starts it automatically alongside Postgres. Skip if you don't need the sourcing upload pipeline locally. | `docker compose ps clamav` |
 | `psql` client (any path) | 14+ | bundled with `postgresql@14`, or `brew install libpq` | `psql --version` |
 
 Linux: `apt install golang-go nodejs npm golang-migrate postgresql-client` plus your distro's docker/postgresql packages.
@@ -75,7 +76,7 @@ Trust auth, no password — your OS user is the superuser.
 make db-up         # starts hireflow-postgres container, waits for healthy
 ```
 
-The container exposes Postgres on **5433** (not 5432) so it doesn't collide with a local install. Other handy targets:
+The container exposes Postgres on **5433** (not 5432) so it doesn't collide with a local install. The image is `pgvector/pgvector:pg14` (a drop-in replacement for `postgres:14` that ships the pgvector extension binaries). Other handy targets:
 
 | Target | What it does |
 |---|---|
@@ -109,6 +110,25 @@ export ANTHROPIC_API_KEY="sk-ant-..."   # https://console.anthropic.com/settings
 export ANTHROPIC_MODEL="claude-opus-4-7" # optional, default claude-opus-4-7
 export ANTHROPIC_TIMEOUT="30s"           # optional, default 30s
 ```
+
+#### Sourcing pipeline env vars
+
+| Variable                | Default            | Notes                                                     |
+|-------------------------|--------------------|-----------------------------------------------------------|
+| SOURCING_STORAGE_PATH   | `/tmp/hireflow-resumes` | Root directory for local resume file storage.        |
+| SOURCING_MAX_FILE_BYTES | `10485760` (10 MB) | Per-file upload size cap.                                 |
+| SOURCING_SCANNER_BACKEND | `noop`            | `noop` or `clamd`. Set `clamd` to enable ClamAV scanning. |
+| SOURCING_SCANNER_ADDR   | `tcp://localhost:3310` | ClamAV address (only used when backend is `clamd`).  |
+| SOURCING_WORKER_POOL    | `4`                | Number of concurrent processing worker goroutines.        |
+| SOURCING_PII_DEK        | (required)         | 64-hex AES-256 key. Generate with `openssl rand -hex 32`. |
+| SOURCING_OCR_THRESHOLD  | 50                 | Char threshold below which OCR fallback runs              |
+| SOURCING_PARSER_BACKEND | claude             | (only option in slice 2)                                  |
+| SOURCING_OCR_BACKEND    | claude             | (only option in slice 2)                                  |
+| VOYAGE_API_KEY          | (required)         | Voyage AI key for Embedder                                |
+| VOYAGE_MODEL            | `voyage-3`         | Voyage embedding model                                    |
+| SOURCING_JUDGE_TOP_K    | `20`               | Top-K applications per intent that get LLM-judged        |
+| SOURCING_MATCH_POOL     | `4`                | Match worker goroutine count                              |
+| SOURCING_JUDGE_POOL     | `2`                | Judge worker goroutine count                              |
 
 Switching paths later is just changing `DATABASE_URL` and re-running `make migrate-up` — both DBs can coexist on different ports.
 
