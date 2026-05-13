@@ -140,13 +140,17 @@ func (p *JobPosting) Publish(channels []valueobjects.SourceChannel) error {
 }
 
 // AmendJD replaces the JD with a new version. Allowed in Draft or Published.
-// Caller must pass an already-validated JDContent (typically from old.WithBumpedVersion()).
+// Caller must pass an already-validated JDContent (typically from
+// old.WithBumpedVersion()). Emits JobPostingAmended so sourcing can
+// republish and analytics can observe the version bump without
+// rehydrating the aggregate.
 func (p *JobPosting) AmendJD(jd valueobjects.JDContent) error {
 	if p.status.IsTerminal() {
 		return ErrCannotAmendTerminal
 	}
 	p.jd = jd
 	p.updatedAt = time.Now().UTC()
+	p.raise(events.NewJobPostingAmended(p.id, p.tenantID, jd.Version(), p.updatedAt))
 	return nil
 }
 

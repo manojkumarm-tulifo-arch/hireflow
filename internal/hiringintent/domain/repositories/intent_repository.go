@@ -49,7 +49,20 @@ type IntentRepository interface {
 	// Returns ErrIntentNotFound if missing or owned by a different tenant.
 	FindByID(ctx context.Context, tenantID shared.TenantID, id valueobjects.IntentID) (*entities.HiringIntent, error)
 
-	// List returns aggregates within a tenant matching the filter.
+	// List returns full aggregates within a tenant matching the filter.
+	//
+	// Deliberate read/write asymmetry: this returns *fat* aggregates (full
+	// role spec, intent signals, trust signals) because the FE intent-list
+	// page renders skills, signals, and trust signals directly on each
+	// card (`web/src/features/intent/IntentCard.tsx`). The sibling
+	// candidate-bgv repo's reviewer queue takes the opposite approach
+	// (`SubmissionSummary` projections in
+	// `bgv/domain/repositories/submission_repository.go`) because its list
+	// view shows only candidate name + status. Different read needs,
+	// different shapes — both correct given their FE.
+	//
+	// If the FE list view ever drops its rich-card design, switch to a
+	// `ListSummaries` returning a lightweight projection like BGV does.
 	List(ctx context.Context, tenantID shared.TenantID, filter IntentFilter) ([]*entities.HiringIntent, error)
 
 	// Counts returns a per-status histogram for a tenant. Returns a fully

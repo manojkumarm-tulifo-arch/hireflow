@@ -34,6 +34,7 @@ func (i *JWTIssuer) IssueAccess(user *entities.User, ttl time.Duration) (string,
 	exp := now.Add(ttl)
 	claims := &sharedauth.Claims{
 		TenantID:    user.TenantID().String(),
+		SubjectKind: string(sharedauth.SubjectRecruiter),
 		RecruiterID: user.ID().String(),
 		Roles:       user.Roles(),
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -7,6 +7,8 @@ import { IntentListPage } from '@/features/intent/IntentListPage';
 import { IntentDetailPage } from '@/features/intent/IntentDetailPage';
 import { PostingListPage } from '@/features/posting/PostingListPage';
 import { PostingDetailPage } from '@/features/posting/PostingDetailPage';
+import { BGVListPage } from '@/features/bgv/BGVListPage';
+import { BGVDetailPage } from '@/features/bgv/BGVDetailPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -20,6 +22,8 @@ export const router = createBrowserRouter([
       { path: 'intents/:id', element: <IntentDetailPage /> },
       { path: 'postings', element: <PostingListPage /> },
       { path: 'postings/:id', element: <PostingDetailPage /> },
+      { path: 'bgv', element: <BGVListPage /> },
+      { path: 'bgv/:id', element: <BGVDetailPage /> },
     ],
   },
 ]);

@@ -210,3 +210,38 @@ func TestNewVerifier_RejectsEmptySecret(t *testing.T) {
 	_, err := auth.NewVerifier(nil, "issuer")
 	require.Error(t, err)
 }
+
+// TestMiddleware_RejectsNonRecruiterSubjectKind guards the recruiter-only
+// boundary: a token minted for a candidate (e.g. by the upstream identity
+// service that fronts candidate-bgv) must not unlock hireflow endpoints,
+// even if it shares the secret + issuer.
+func TestMiddleware_RejectsNonRecruiterSubjectKind(t *testing.T) {
+	v := newTestVerifier(t)
+	token := signToken(t, func(c *auth.Claims) {
+		c.SubjectKind = string(auth.SubjectCandidate)
+		c.RecruiterID = ""
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.False(t, cap.called)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// TestMiddleware_AcceptsRecruiterSubjectKind guards the new positive path:
+// a token explicitly stamped subject_kind=recruiter passes verification.
+func TestMiddleware_AcceptsRecruiterSubjectKind(t *testing.T) {
+	v := newTestVerifier(t)
+	token := signToken(t, func(c *auth.Claims) {
+		c.SubjectKind = string(auth.SubjectRecruiter)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.True(t, cap.called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

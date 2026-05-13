@@ -176,48 +176,67 @@ func (h *HiringIntent) UpdateRole(role valueobjects.RoleSpec) error {
 }
 
 // AddIntentSignal appends an intent signal. Allowed only in Drafted state.
+// Emits IntentSignalAdded so subscribers (analytics, LLM context refresh)
+// learn about the addition without diffing the aggregate.
 func (h *HiringIntent) AddIntentSignal(s valueobjects.IntentSignal) error {
 	if !h.IsModifiable() {
 		return ErrCannotModifyConfirmed
 	}
 	h.intentSignals = append(h.intentSignals, s)
 	h.touch()
+	h.raise(events.NewIntentSignalAdded(h.id, h.tenantID, s.Label(), s.Level(), h.updatedAt))
 	return nil
 }
 
 // AddTrustSignal appends a trust signal. Allowed only in Drafted state.
+// Emits IntentTrustSignalAdded — symmetry with AddIntentSignal.
 func (h *HiringIntent) AddTrustSignal(s valueobjects.TrustSignal) error {
 	if !h.IsModifiable() {
 		return ErrCannotModifyConfirmed
 	}
 	h.trustSignals = append(h.trustSignals, s)
 	h.touch()
+	h.raise(events.NewIntentTrustSignalAdded(h.id, h.tenantID, s.Label(), s.Required(), h.updatedAt))
 	return nil
 }
 
 // SetBudget assigns or replaces the budget range. Allowed only in Drafted state.
+// Emits IntentBudgetSet so the next LLM turn sees the new bounds and
+// downstream analytics can track budget changes per intent.
 func (h *HiringIntent) SetBudget(b valueobjects.BudgetRange) error {
 	if !h.IsModifiable() {
 		return ErrCannotModifyConfirmed
 	}
 	h.budget = &b
 	h.touch()
+	h.raise(events.NewIntentBudgetSet(h.id, h.tenantID, b.MinMinor(), b.MaxMinor(), b.Currency(), h.updatedAt))
 	return nil
 }
 
 // SetReason sets the recruiter's free-text rationale for the role
 // (backfill, growth, new product line, etc). Empty string clears it.
+//
+// Intentionally silent — see setContext.
 func (h *HiringIntent) SetReason(s string) error { return h.setContext(&h.reason, s) }
 
 // SetTeam sets the team / pod / squad the hire will join. Empty clears.
+// Intentionally silent — see setContext.
 func (h *HiringIntent) SetTeam(s string) error { return h.setContext(&h.team, s) }
 
 // SetReportsTo sets the hiring manager / reporting line. Empty clears.
+// Intentionally silent — see setContext.
 func (h *HiringIntent) SetReportsTo(s string) error { return h.setContext(&h.reportsTo, s) }
 
 // setContext is the shared write path for the three free-text context
 // fields. Trims surrounding whitespace, enforces MaxContextFieldLen, and
 // rejects writes on a non-Drafted intent.
+//
+// Event policy: every other public mutator on this aggregate raises a
+// domain event. These three setters are deliberately silent — they're
+// optional metadata bag fields that no downstream subscriber cares
+// about (no analytics signal, no LLM-context refresh, no projection
+// update). If that ever changes, add a single IntentContextUpdated
+// event with a `field` discriminator and emit from setContext.
 func (h *HiringIntent) setContext(field *string, raw string) error {
 	if !h.IsModifiable() {
 		return ErrCannotModifyConfirmed

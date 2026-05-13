@@ -80,6 +80,75 @@ func (e IntentConfirmed) AggregateID() valueobjects.IntentID { return e.IntentID
 func (e IntentConfirmed) Tenant() shared.TenantID            { return e.TenantID }
 func (e IntentConfirmed) At() time.Time                      { return e.OccurredAt }
 
+// IntentSignalAdded is raised after a successful AddIntentSignal on a
+// Drafted intent. Mirrors IntentRoleUpdated in cardinality — every public
+// mutator on the aggregate emits an event so subscribers (analytics,
+// LLM context refresh) don't have to diff the whole aggregate to spot
+// changes. Carries the new signal's identity (label) plus its level so
+// downstream code can filter without rehydrating the full intent.
+type IntentSignalAdded struct {
+	IntentID   valueobjects.IntentID `json:"intent_id"`
+	TenantID   shared.TenantID       `json:"tenant_id"`
+	Label      string                `json:"label"`
+	Level      valueobjects.SignalLevel `json:"level"`
+	OccurredAt time.Time             `json:"occurred_at"`
+}
+
+// NewIntentSignalAdded constructs the event.
+func NewIntentSignalAdded(id valueobjects.IntentID, tenant shared.TenantID, label string, level valueobjects.SignalLevel, at time.Time) IntentSignalAdded {
+	return IntentSignalAdded{IntentID: id, TenantID: tenant, Label: label, Level: level, OccurredAt: at}
+}
+
+func (e IntentSignalAdded) EventName() string                  { return "hiringintent.IntentSignalAdded" }
+func (e IntentSignalAdded) AggregateID() valueobjects.IntentID { return e.IntentID }
+func (e IntentSignalAdded) Tenant() shared.TenantID            { return e.TenantID }
+func (e IntentSignalAdded) At() time.Time                      { return e.OccurredAt }
+
+// IntentTrustSignalAdded is raised after a successful AddTrustSignal.
+// Payload mirrors IntentSignalAdded but carries `required` instead of
+// `level` since trust signals are required-vs-optional, not graded.
+type IntentTrustSignalAdded struct {
+	IntentID   valueobjects.IntentID `json:"intent_id"`
+	TenantID   shared.TenantID       `json:"tenant_id"`
+	Label      string                `json:"label"`
+	Required   bool                  `json:"required"`
+	OccurredAt time.Time             `json:"occurred_at"`
+}
+
+// NewIntentTrustSignalAdded constructs the event.
+func NewIntentTrustSignalAdded(id valueobjects.IntentID, tenant shared.TenantID, label string, required bool, at time.Time) IntentTrustSignalAdded {
+	return IntentTrustSignalAdded{IntentID: id, TenantID: tenant, Label: label, Required: required, OccurredAt: at}
+}
+
+func (e IntentTrustSignalAdded) EventName() string                  { return "hiringintent.IntentTrustSignalAdded" }
+func (e IntentTrustSignalAdded) AggregateID() valueobjects.IntentID { return e.IntentID }
+func (e IntentTrustSignalAdded) Tenant() shared.TenantID            { return e.TenantID }
+func (e IntentTrustSignalAdded) At() time.Time                      { return e.OccurredAt }
+
+// IntentBudgetSet is raised after a successful SetBudget on a Drafted
+// intent. Budget changes are interesting to recruiter analytics and to
+// the LLM extractor (the next-turn prompt sees the budget the model
+// ought to keep in mind). Carries the new range only — the previous
+// value, if any, can be derived by replaying.
+type IntentBudgetSet struct {
+	IntentID   valueobjects.IntentID `json:"intent_id"`
+	TenantID   shared.TenantID       `json:"tenant_id"`
+	MinMinor   int64                 `json:"min_minor"`
+	MaxMinor   int64                 `json:"max_minor"`
+	Currency   string                `json:"currency"`
+	OccurredAt time.Time             `json:"occurred_at"`
+}
+
+// NewIntentBudgetSet constructs the event.
+func NewIntentBudgetSet(id valueobjects.IntentID, tenant shared.TenantID, minMinor, maxMinor int64, currency string, at time.Time) IntentBudgetSet {
+	return IntentBudgetSet{IntentID: id, TenantID: tenant, MinMinor: minMinor, MaxMinor: maxMinor, Currency: currency, OccurredAt: at}
+}
+
+func (e IntentBudgetSet) EventName() string                  { return "hiringintent.IntentBudgetSet" }
+func (e IntentBudgetSet) AggregateID() valueobjects.IntentID { return e.IntentID }
+func (e IntentBudgetSet) Tenant() shared.TenantID            { return e.TenantID }
+func (e IntentBudgetSet) At() time.Time                      { return e.OccurredAt }
+
 // IntentCancelled is raised when an intent is withdrawn before being filled.
 type IntentCancelled struct {
 	IntentID   valueobjects.IntentID `json:"intent_id"`

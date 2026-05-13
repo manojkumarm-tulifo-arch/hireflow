@@ -39,5 +39,6 @@ func TestIssuedToken_VerifiesAgainstSharedMiddleware(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, user.TenantID().String(), claims.TenantID)
 	assert.Equal(t, user.ID().String(), claims.RecruiterID)
+	assert.Equal(t, string(sharedauth.SubjectRecruiter), claims.SubjectKind)
 	assert.Equal(t, []string{"recruiter", "admin"}, claims.Roles)
 }

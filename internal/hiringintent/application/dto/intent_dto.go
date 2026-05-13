@@ -94,17 +94,17 @@ func FromEntity(h *entities.HiringIntent) IntentDTO {
 	skills := role.Skills()
 	skillDTOs := make([]SkillDTO, len(skills))
 	for i, s := range skills {
-		skillDTOs[i] = SkillDTO{Name: s.Name, Required: s.Required}
+		skillDTOs[i] = SkillDTO{Name: s.Name(), Required: s.Required()}
 	}
 	intentSigs := h.IntentSignals()
 	intentSigDTOs := make([]IntentSignalDTO, len(intentSigs))
 	for i, s := range intentSigs {
-		intentSigDTOs[i] = IntentSignalDTO{Label: s.Label, Value: s.Value, Level: string(s.Level)}
+		intentSigDTOs[i] = IntentSignalDTO{Label: s.Label(), Value: s.Value(), Level: string(s.Level())}
 	}
 	trustSigs := h.TrustSignals()
 	trustSigDTOs := make([]TrustSignalDTO, len(trustSigs))
 	for i, s := range trustSigs {
-		trustSigDTOs[i] = TrustSignalDTO{Label: s.Label, Value: s.Value, Required: s.Required}
+		trustSigDTOs[i] = TrustSignalDTO{Label: s.Label(), Value: s.Value(), Required: s.Required()}
 	}
 
 	dto := IntentDTO{

@@ -19,14 +19,33 @@ var (
 	ErrInvalidToken = errors.New("invalid token")
 	// ErrMissingClaim is returned when a required claim is absent.
 	ErrMissingClaim = errors.New("required claim missing")
+	// ErrWrongSubjectKind is returned when the token's subject_kind is not
+	// accepted by this service (hireflow serves recruiters only).
+	ErrWrongSubjectKind = errors.New("wrong subject kind")
 )
 
-// Claims is the payload of an hireflow access token.
-// Mirrors the standard layout from authentication-standards.md and adds
-// TenantID + RecruiterID — the two identifiers every business request needs.
+// SubjectKind discriminates principal types. Sibling services (e.g.
+// candidate-bgv) may issue or verify tokens for non-recruiter subjects
+// (candidates). hireflow only mints recruiter tokens today; the field is
+// emitted on every token so downstream services can route on it without a
+// brittle "recruiter_id present" inference.
+type SubjectKind string
+
+const (
+	// SubjectRecruiter — JWT was issued for a recruiter user.
+	SubjectRecruiter SubjectKind = "recruiter"
+	// SubjectCandidate — JWT was issued for a candidate (issued by a
+	// downstream identity service, not by hireflow).
+	SubjectCandidate SubjectKind = "candidate"
+)
+
+// Claims is the payload of an hireflow access token. The shape is shared
+// with sibling services (candidate-bgv) — any field added here must also be
+// reflected in candidate-bgv/internal/shared/infrastructure/auth/claims.go.
 type Claims struct {
 	TenantID    string   `json:"tenant_id"`
-	RecruiterID string   `json:"recruiter_id"`
+	SubjectKind string   `json:"subject_kind,omitempty"`
+	RecruiterID string   `json:"recruiter_id,omitempty"`
 	Roles       []string `json:"roles,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -65,6 +84,12 @@ func (v *Verifier) Verify(token string) (*Claims, error) {
 	}
 	if v.issuer != "" && claims.Issuer != v.issuer {
 		return nil, ErrInvalidToken
+	}
+	// hireflow's API surface is recruiter-only. Candidate tokens (minted by
+	// the upstream identity service for the BGV flow) must not pass here —
+	// they would lack a recruiter_id but might still resolve a tenant.
+	if claims.SubjectKind != "" && SubjectKind(claims.SubjectKind) != SubjectRecruiter {
+		return nil, ErrWrongSubjectKind
 	}
 	if claims.TenantID == "" || claims.RecruiterID == "" {
 		return nil, ErrMissingClaim
