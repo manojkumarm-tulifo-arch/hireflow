@@ -110,6 +110,12 @@ func (r *stubCandRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UU
 func (r *stubCandRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.Candidate, error) {
 	return nil, repositories.ErrCandidateNotFound
 }
+func (r *stubCandRepo) ListByTenant(_ context.Context, _ shared.TenantID) ([]*entities.Candidate, error) {
+	return nil, nil
+}
+func (r *stubCandRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
+	return nil
+}
 
 // stubEnc is a reversible encryptor: Encrypt prepends "ENC:", Decrypt strips it.
 type stubEnc struct{}

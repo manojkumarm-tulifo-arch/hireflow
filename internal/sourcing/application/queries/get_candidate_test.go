@@ -31,6 +31,12 @@ func (r *stubCandidateRepo) FindByID(_ context.Context, _ shared.TenantID, id uu
 func (r *stubCandidateRepo) FindByContentHash(context.Context, shared.TenantID, string) (*entities.Candidate, error) {
 	return nil, repositories.ErrCandidateNotFound
 }
+func (r *stubCandidateRepo) ListByTenant(context.Context, shared.TenantID) ([]*entities.Candidate, error) {
+	return nil, nil
+}
+func (r *stubCandidateRepo) UpdateProfileEmbedding(context.Context, uuid.UUID, shared.TenantID, []float32) error {
+	return nil
+}
 
 // Reversible "encryptor" for tests — prepends "ENC:" to plaintext.
 type stubEncryptor struct{}

@@ -36,19 +36,20 @@ type NewCandidateInput struct {
 
 // Candidate is the tenant-scoped person aggregate. Unique on (tenant_id, content_hash).
 type Candidate struct {
-	id            uuid.UUID
-	tenantID      shared.TenantID
-	contentHash   vo.ContentHash
-	encFullName   string
-	encEmail      string
-	encPhone      string
-	location      string
-	headline      string
-	profile       vo.ParsedProfile
-	source        string
-	createdAt     time.Time
-	updatedAt     time.Time
-	pendingEvents []events.Event
+	id               uuid.UUID
+	tenantID         shared.TenantID
+	contentHash      vo.ContentHash
+	encFullName      string
+	encEmail         string
+	encPhone         string
+	location         string
+	headline         string
+	profile          vo.ParsedProfile
+	profileEmbedding []float32 // nil until the match worker embeds it
+	source           string
+	createdAt        time.Time
+	updatedAt        time.Time
+	pendingEvents    []events.Event
 }
 
 // NewCandidate constructs a fresh candidate, validating the profile and
@@ -108,6 +109,8 @@ func (c *Candidate) Location() string            { return c.location }
 func (c *Candidate) Headline() string            { return c.headline }
 func (c *Candidate) Profile() vo.ParsedProfile   { return c.profile }
 func (c *Candidate) ProfileSchema() int          { return c.profile.SchemaVersion }
+// ProfileEmbedding returns the cached 1024-dim embedding, or nil if not yet computed.
+func (c *Candidate) ProfileEmbedding() []float32 { return c.profileEmbedding }
 func (c *Candidate) Source() string              { return c.source }
 func (c *Candidate) CreatedAt() time.Time        { return c.createdAt }
 func (c *Candidate) UpdatedAt() time.Time        { return c.updatedAt }
@@ -134,6 +137,7 @@ type RehydrateCandidateInput struct {
 	Location          string
 	Headline          string
 	Profile           vo.ParsedProfile
+	ProfileEmbedding  []float32 // nil when not yet computed
 	Source            string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -142,17 +146,18 @@ type RehydrateCandidateInput struct {
 // RehydrateCandidate reconstructs an aggregate from a persisted row.
 func RehydrateCandidate(in RehydrateCandidateInput) *Candidate {
 	return &Candidate{
-		id:          in.ID,
-		tenantID:    in.TenantID,
-		contentHash: in.ContentHash,
-		encFullName: in.EncryptedFullName,
-		encEmail:    in.EncryptedEmail,
-		encPhone:    in.EncryptedPhone,
-		location:    in.Location,
-		headline:    in.Headline,
-		profile:     in.Profile,
-		source:      in.Source,
-		createdAt:   in.CreatedAt,
-		updatedAt:   in.UpdatedAt,
+		id:               in.ID,
+		tenantID:         in.TenantID,
+		contentHash:      in.ContentHash,
+		encFullName:      in.EncryptedFullName,
+		encEmail:         in.EncryptedEmail,
+		encPhone:         in.EncryptedPhone,
+		location:         in.Location,
+		headline:         in.Headline,
+		profile:          in.Profile,
+		profileEmbedding: in.ProfileEmbedding,
+		source:           in.Source,
+		createdAt:        in.CreatedAt,
+		updatedAt:        in.UpdatedAt,
 	}
 }

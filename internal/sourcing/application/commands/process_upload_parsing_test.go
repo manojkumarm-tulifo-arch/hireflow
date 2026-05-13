@@ -89,6 +89,14 @@ func (r *fakeCandidateRepo) FindByContentHash(_ context.Context, _ shared.Tenant
 	return nil, repositories.ErrCandidateNotFound
 }
 
+func (r *fakeCandidateRepo) ListByTenant(_ context.Context, _ shared.TenantID) ([]*entities.Candidate, error) {
+	return nil, nil
+}
+
+func (r *fakeCandidateRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

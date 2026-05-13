@@ -125,6 +125,39 @@ func (r *PostgresCandidateRepository) findByContentHashTx(ctx context.Context, t
 	return scanCandidate(row)
 }
 
+// ListByTenant returns all candidates belonging to the given tenant.
+func (r *PostgresCandidateRepository) ListByTenant(ctx context.Context, tenant shared.TenantID) ([]*entities.Candidate, error) {
+	rows, err := r.pool.Query(ctx, candidateSelectSQL+" WHERE tenant_id=$1 ORDER BY created_at ASC", tenant.String())
+	if err != nil {
+		return nil, fmt.Errorf("list candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entities.Candidate
+	for rows.Next() {
+		c, err := scanCandidate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateProfileEmbedding persists the profile embedding vector for the candidate.
+// This is a targeted UPDATE rather than a full Save to avoid overwriting other
+// fields and to avoid re-emitting events.
+func (r *PostgresCandidateRepository) UpdateProfileEmbedding(ctx context.Context, candidateID uuid.UUID, tenant shared.TenantID, vector []float32) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE candidates SET profile_embedding = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
+		vector, candidateID, tenant.String(),
+	)
+	if err != nil {
+		return fmt.Errorf("update profile_embedding: %w", err)
+	}
+	return nil
+}
+
 func scanCandidate(rs rowScanner) (*entities.Candidate, error) {
 	var row candidateRow
 	err := rs.Scan(

@@ -28,4 +28,14 @@ type CandidateRepository interface {
 	// FindByContentHash — tenant-scoped lookup by content_hash. Used by the
 	// parsing handler to dedup before creating a new aggregate.
 	FindByContentHash(ctx context.Context, tenant shared.TenantID, hash string) (*entities.Candidate, error)
+
+	// ListByTenant returns all candidates belonging to the given tenant.
+	// Used by ScoreIntent to fan out over all parsed candidates when a new
+	// intent is confirmed.
+	ListByTenant(ctx context.Context, tenant shared.TenantID) ([]*entities.Candidate, error)
+
+	// UpdateProfileEmbedding persists the 1024-dim embedding vector for the
+	// given candidate. Called by ScoreApplicationHandler after the first embed
+	// so subsequent scoring passes skip the Voyage API call.
+	UpdateProfileEmbedding(ctx context.Context, candidateID uuid.UUID, tenant shared.TenantID, vector []float32) error
 }
