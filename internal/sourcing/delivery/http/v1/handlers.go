@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,19 +19,33 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/application/queries"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
+	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 )
 
 // SourcingHandler exposes the v1 endpoints of the sourcing context.
 type SourcingHandler struct {
-	upload    *commands.UploadResumeBatchHandler
-	status    *queries.GetBatchStatusHandler
-	candidate *queries.GetCandidateHandler
-	logger    zerolog.Logger
+	upload           *commands.UploadResumeBatchHandler
+	status           *queries.GetBatchStatusHandler
+	candidate        *queries.GetCandidateHandler
+	listApplications *queries.ListApplicationsHandler
+	logger           zerolog.Logger
 }
 
 // NewSourcingHandler wires the handler.
-func NewSourcingHandler(upload *commands.UploadResumeBatchHandler, status *queries.GetBatchStatusHandler, candidate *queries.GetCandidateHandler, logger zerolog.Logger) *SourcingHandler {
-	return &SourcingHandler{upload: upload, status: status, candidate: candidate, logger: logger}
+func NewSourcingHandler(
+	upload *commands.UploadResumeBatchHandler,
+	status *queries.GetBatchStatusHandler,
+	candidate *queries.GetCandidateHandler,
+	listApplications *queries.ListApplicationsHandler,
+	logger zerolog.Logger,
+) *SourcingHandler {
+	return &SourcingHandler{
+		upload:           upload,
+		status:           status,
+		candidate:        candidate,
+		listApplications: listApplications,
+		logger:           logger,
+	}
 }
 
 // BatchUpload handles POST /intents/{intent_id}/resumes:batch.
@@ -172,6 +187,128 @@ func (h *SourcingHandler) GetCandidate(w http.ResponseWriter, r *http.Request) {
 		Profile:   out.Profile,
 		Source:    out.Source,
 		CreatedAt: out.CreatedAt.Format(time.RFC3339),
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ListApplications handles GET /intents/{intent_id}/applications.
+func (h *SourcingHandler) ListApplications(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	intentID, err := uuid.Parse(chi.URLParam(r, "intent_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_intent_id", "intent_id must be a uuid")
+		return
+	}
+	if h.listApplications == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "listApplications handler not configured")
+		return
+	}
+
+	q := r.URL.Query()
+
+	// Parse optional status filter.
+	var statusFilter *vo.ApplicationStatus
+	if s := q.Get("status"); s != "" {
+		parsed := vo.ApplicationStatus(s)
+		statusFilter = &parsed
+	}
+
+	// Parse optional min_score filter.
+	var minScore *float64
+	if ms := q.Get("min_score"); ms != "" {
+		f, err := strconv.ParseFloat(ms, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_min_score", "min_score must be a number")
+			return
+		}
+		minScore = &f
+	}
+
+	// Parse sort (default: score_desc).
+	sort := q.Get("sort")
+	if sort == "" {
+		sort = "score_desc"
+	}
+
+	// Parse limit (default 50, cap 200).
+	limit := 50
+	if ls := q.Get("limit"); ls != "" {
+		n, err := strconv.Atoi(ls)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > 200 {
+			n = 200
+		}
+		limit = n
+	}
+
+	// Parse offset (default 0).
+	offset := 0
+	if os := q.Get("offset"); os != "" {
+		n, err := strconv.Atoi(os)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "invalid_offset", "offset must be a non-negative integer")
+			return
+		}
+		offset = n
+	}
+
+	out, err := h.listApplications.Handle(r.Context(), queries.ListApplicationsInput{
+		TenantID: identity.TenantID,
+		IntentID: intentID,
+		Filter: repositories.ApplicationListFilter{
+			Status:   statusFilter,
+			MinScore: minScore,
+			Sort:     sort,
+			Limit:    limit,
+			Offset:   offset,
+		},
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list applications failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	resp := ApplicationListResponse{
+		Total: out.Total,
+		Facets: ApplicationListFacets{
+			Strong:   out.Facets.Strong,
+			Moderate: out.Facets.Moderate,
+			Weak:     out.Facets.Weak,
+		},
+	}
+	for _, it := range out.Items {
+		item := ApplicationListItem{
+			ApplicationID: it.ApplicationID.String(),
+			Candidate: ApplicationCandidate{
+				ID:             it.CandidateID.String(),
+				FullNameMasked: it.CandidateName,
+				Headline:       it.Headline,
+				Location:       it.Location,
+			},
+			Score: ApplicationScore{
+				Overall:        it.OverallScore,
+				Band:           it.ScoreBand,
+				EmbeddingScore: it.EmbeddingScore,
+				RuleMatch:      it.RuleMatch,
+				LLM:            it.LLMJudgment,
+			},
+			Status: it.Status,
+		}
+		if it.ScoredAt != nil {
+			item.ScoredAt = it.ScoredAt.Format(time.RFC3339)
+		}
+		resp.Items = append(resp.Items, item)
+	}
+	if resp.Items == nil {
+		resp.Items = []ApplicationListItem{}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

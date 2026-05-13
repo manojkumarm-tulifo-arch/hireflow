@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: hireflow — sourcing (slice 2)
-  version: "1.0.0-slice2"
+  title: hireflow — sourcing (slice 3)
+  version: "1.0.0-slice3"
   description: |
-    Resume ingestion and candidate detail endpoints.
-    Slice 2 adds resume parsing, candidate aggregates, and the candidate detail endpoint.
+    Resume ingestion, candidate detail, and ranked Application list endpoints.
+    Slice 3 adds matching/scoring pipeline and the GET /intents/{id}/applications endpoint.
 paths:
   /intents/{intent_id}/resumes:batch:
     post:
@@ -43,6 +43,25 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BatchStatusResponse' }
         '401': { description: missing identity }
+  /intents/{intent_id}/applications:
+    get:
+      summary: List Applications for an intent, ranked
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: intent_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: min_score, in: query, required: false, schema: { type: number } }
+        - { name: sort, in: query, required: false, schema: { type: string, enum: [score_desc, recent], default: score_desc } }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 50 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: ranked Applications
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplicationListResponse' }
+        '401': { description: missing identity }
+        '400': { description: bad request }
   /candidates/{candidate_id}:
     get:
       summary: Get candidate detail with decrypted PII
@@ -130,3 +149,46 @@ components:
         full_name: { type: string }
         email: { type: string, format: email }
         phone: { type: string }
+    ApplicationListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ApplicationListItem' }
+        total: { type: integer }
+        facets: { $ref: '#/components/schemas/ApplicationListFacets' }
+    ApplicationListItem:
+      type: object
+      properties:
+        application_id: { type: string, format: uuid }
+        candidate: { $ref: '#/components/schemas/ApplicationCandidate' }
+        score: { $ref: '#/components/schemas/ApplicationScore' }
+        status: { type: string }
+        scored_at: { type: string, format: date-time }
+    ApplicationCandidate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        full_name_masked: { type: string }
+        headline: { type: string }
+        location: { type: string }
+    ApplicationScore:
+      type: object
+      properties:
+        overall: { type: number }
+        band: { type: string, enum: [strong, moderate, weak] }
+        embedding_score: { type: number }
+        rule_match:
+          type: object
+          description: RuleMatchReport JSON
+          additionalProperties: true
+        llm:
+          type: object
+          description: LLMJudgment JSON (only for judged rows)
+          additionalProperties: true
+    ApplicationListFacets:
+      type: object
+      properties:
+        strong: { type: integer }
+        moderate: { type: integer }
+        weak: { type: integer }

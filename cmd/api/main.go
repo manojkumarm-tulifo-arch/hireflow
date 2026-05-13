@@ -189,7 +189,8 @@ func main() {
 	})
 	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
 
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, logger)
+	// T19 will wire the real listApplications handler; nil triggers a 503 guard in the handler.
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, nil, logger)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})

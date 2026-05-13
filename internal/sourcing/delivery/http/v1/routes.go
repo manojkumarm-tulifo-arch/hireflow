@@ -9,4 +9,5 @@ func Mount(r chi.Router, h *SourcingHandler) {
 	r.Post("/intents/{intent_id}/resumes:batch", h.BatchUpload)
 	r.Get("/resumes/batches/{batch_id}", h.GetBatchStatus)
 	r.Get("/candidates/{candidate_id}", h.GetCandidate)
+	r.Get("/intents/{intent_id}/applications", h.ListApplications)
 }

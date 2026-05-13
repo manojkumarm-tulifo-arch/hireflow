@@ -137,7 +137,8 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	status := queries.NewGetBatchStatusHandler(repo)
 	candRepo := newStubCandRepo()
 	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
-	return v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop()), repo, store
+	// nil for listApplications — slice-1/2 tests don't exercise that endpoint.
+	return v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -337,7 +338,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -367,7 +368,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -388,7 +389,7 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -399,4 +400,172 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// ListApplications tests
+// ---------------------------------------------------------------------------
+
+// stubAppRepo is an in-memory ApplicationRepository for handler tests.
+type stubAppRepo struct {
+	apps []*entities.Application
+}
+
+func (r *stubAppRepo) Save(_ context.Context, _ *entities.Application) error { return nil }
+func (r *stubAppRepo) FindByID(_ context.Context, _ shared.TenantID, _ uuid.UUID) (*entities.Application, error) {
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *stubAppRepo) FindByCandidateAndIntent(_ context.Context, _ shared.TenantID, _, _ uuid.UUID) (*entities.Application, error) {
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *stubAppRepo) ListByIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ repositories.ApplicationListFilter) ([]*entities.Application, error) {
+	return r.apps, nil
+}
+func (r *stubAppRepo) ClaimNextNew(_ context.Context) (*entities.Application, error) {
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *stubAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
+	return nil, nil
+}
+
+// buildListApplicationsHandler creates a SourcingHandler wired with a
+// ListApplicationsHandler backed by the given app and candidate repos.
+func buildListApplicationsHandler(t *testing.T, appRepo repositories.ApplicationRepository, candRepo repositories.CandidateRepository) *v1.SourcingHandler {
+	t.Helper()
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	listAppsHandler := queries.NewListApplicationsHandler(appRepo, candRepo, stubEnc{})
+	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, zerolog.Nop())
+}
+
+// buildScoredApplicationForHandler returns a scored Application with the given candidate.
+func buildScoredApplicationForHandler(t *testing.T, tenant shared.TenantID, candidateID, intentID uuid.UUID) *entities.Application {
+	t.Helper()
+	app, err := entities.NewApplication(entities.NewApplicationInput{
+		TenantID:             tenant,
+		CandidateID:          candidateID,
+		IntentID:             intentID,
+		IntentSpecVersion:    1,
+		ProfileSchemaVersion: 1,
+	})
+	require.NoError(t, err)
+	rules := vo.RuleMatchReport{
+		Results: []vo.RuleResult{
+			{Criterion: vo.RuleCriterion{Type: "skill", Name: "Go", Required: true}, Passed: true},
+		},
+	}
+	require.NoError(t, app.RecordRuleMatch(rules))
+	require.NoError(t, app.RecordEmbeddingScore(0.85))
+	require.NoError(t, app.MarkScored(nil))
+	_ = app.PullEvents()
+	return app
+}
+
+func TestListApplications_HappyPath_Returns200WithItems(t *testing.T) {
+	tenant := shared.NewTenantID()
+	intentID := uuid.New()
+
+	hashA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	hA, err := vo.NewContentHash(hashA)
+	require.NoError(t, err)
+	profileA := vo.NewParsedProfile()
+	profileA.Personal.FullName = "Alice"
+	candA, err := entities.NewCandidate(entities.NewCandidateInput{
+		TenantID:    tenant,
+		ContentHash: hA,
+		Profile:     profileA,
+		Encrypted:   entities.EncryptedPersonal{FullName: "ENC:Alice", Email: "ENC:alice@example.com"},
+		Location:    "Bangalore",
+		Headline:    "Go Engineer",
+		Source:      "manual_upload",
+	})
+	require.NoError(t, err)
+	_ = candA.PullEvents()
+
+	hB, err := vo.NewContentHash(hashB)
+	require.NoError(t, err)
+	profileB := vo.NewParsedProfile()
+	profileB.Personal.FullName = "Bob"
+	candB, err := entities.NewCandidate(entities.NewCandidateInput{
+		TenantID:    tenant,
+		ContentHash: hB,
+		Profile:     profileB,
+		Encrypted:   entities.EncryptedPersonal{FullName: "ENC:Bob", Email: "ENC:bob@example.com"},
+		Location:    "Mumbai",
+		Headline:    "Backend Engineer",
+		Source:      "manual_upload",
+	})
+	require.NoError(t, err)
+	_ = candB.PullEvents()
+
+	appA := buildScoredApplicationForHandler(t, tenant, candA.ID(), intentID)
+	appB := buildScoredApplicationForHandler(t, tenant, candB.ID(), intentID)
+
+	candRepo := newStubCandRepo()
+	candRepo.byID[candA.ID().String()] = candA
+	candRepo.byID[candB.ID().String()] = candB
+
+	appRepo := &stubAppRepo{apps: []*entities.Application{appA, appB}}
+	h := buildListApplicationsHandler(t, appRepo, candRepo)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/intents/"+intentID.String()+"/applications", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp v1.ApplicationListResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, 2, resp.Total)
+	assert.Len(t, resp.Items, 2)
+
+	for _, item := range resp.Items {
+		assert.NotEmpty(t, item.ApplicationID)
+		assert.NotEmpty(t, item.Candidate.ID)
+		require.NotNil(t, item.Score.EmbeddingScore)
+		assert.InDelta(t, 0.85, *item.Score.EmbeddingScore, 1e-9)
+		assert.NotEmpty(t, item.Candidate.FullNameMasked)
+		assert.True(t, strings.HasSuffix(item.Candidate.FullNameMasked, "***"))
+		assert.NotEmpty(t, item.Status)
+	}
+}
+
+func TestListApplications_NoAuth_Returns401(t *testing.T) {
+	appRepo := &stubAppRepo{apps: []*entities.Application{}}
+	candRepo := newStubCandRepo()
+	h := buildListApplicationsHandler(t, appRepo, candRepo)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/intents/"+uuid.New().String()+"/applications", nil)
+	// No withIdentity — missing auth context.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestListApplications_InvalidIntentID_Returns400(t *testing.T) {
+	appRepo := &stubAppRepo{apps: []*entities.Application{}}
+	candRepo := newStubCandRepo()
+	h := buildListApplicationsHandler(t, appRepo, candRepo)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/intents/not-a-uuid/applications", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

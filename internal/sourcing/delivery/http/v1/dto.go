@@ -75,3 +75,43 @@ type CandidatePersonal struct {
 	Email    string `json:"email,omitempty"`
 	Phone    string `json:"phone,omitempty"`
 }
+
+// ApplicationListResponse is the response body for GET /intents/{id}/applications.
+type ApplicationListResponse struct {
+	Items  []ApplicationListItem `json:"items"`
+	Total  int                   `json:"total"`
+	Facets ApplicationListFacets `json:"facets"`
+}
+
+// ApplicationListItem is one row in the ranked Applications list.
+type ApplicationListItem struct {
+	ApplicationID string               `json:"application_id"`
+	Candidate     ApplicationCandidate `json:"candidate"`
+	Score         ApplicationScore     `json:"score"`
+	Status        string               `json:"status"`
+	ScoredAt      string               `json:"scored_at,omitempty"`
+}
+
+// ApplicationCandidate is the masked candidate projection in the list response.
+type ApplicationCandidate struct {
+	ID             string `json:"id"`
+	FullNameMasked string `json:"full_name_masked,omitempty"`
+	Headline       string `json:"headline,omitempty"`
+	Location       string `json:"location,omitempty"`
+}
+
+// ApplicationScore holds the scoring detail for one application row.
+type ApplicationScore struct {
+	Overall        *float64        `json:"overall,omitempty"`
+	Band           *string         `json:"band,omitempty"`
+	EmbeddingScore *float64        `json:"embedding_score,omitempty"`
+	RuleMatch      json.RawMessage `json:"rule_match"`
+	LLM            json.RawMessage `json:"llm,omitempty"`
+}
+
+// ApplicationListFacets holds per-score-band counts.
+type ApplicationListFacets struct {
+	Strong   int `json:"strong"`
+	Moderate int `json:"moderate"`
+	Weak     int `json:"weak"`
+}
