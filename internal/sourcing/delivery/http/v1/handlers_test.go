@@ -24,6 +24,7 @@ import (
 	v1 "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
+	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 )
 
 // Reuse the in-memory fakes defined in commands_test by re-declaring here
@@ -88,12 +89,49 @@ func (s *memStorage) MoveToQuarantine(_ context.Context, k string) (string, erro
 
 const pdfMagic = "%PDF-1.4\n%test\n"
 
+// stubCandRepo is an in-memory CandidateRepository for handler tests.
+type stubCandRepo struct {
+	byID map[string]*entities.Candidate
+}
+
+func newStubCandRepo() *stubCandRepo {
+	return &stubCandRepo{byID: map[string]*entities.Candidate{}}
+}
+
+func (r *stubCandRepo) Save(_ context.Context, c *entities.Candidate) (*entities.Candidate, error) {
+	return c, nil
+}
+func (r *stubCandRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UUID) (*entities.Candidate, error) {
+	if c, ok := r.byID[id.String()]; ok {
+		return c, nil
+	}
+	return nil, repositories.ErrCandidateNotFound
+}
+func (r *stubCandRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.Candidate, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
+
+// stubEnc is a reversible encryptor: Encrypt prepends "ENC:", Decrypt strips it.
+type stubEnc struct{}
+
+func (stubEnc) Encrypt(_ context.Context, _ shared.TenantID, p string) (string, error) {
+	return "ENC:" + p, nil
+}
+func (stubEnc) Decrypt(_ context.Context, _ shared.TenantID, ct string) (string, error) {
+	if len(ct) >= 4 && ct[:4] == "ENC:" {
+		return ct[4:], nil
+	}
+	return ct, nil
+}
+
 func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	repo := newMemRepo()
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	return v1.NewSourcingHandler(upload, status, zerolog.Nop()), repo, store
+	candRepo := newStubCandRepo()
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+	return v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -255,4 +293,104 @@ func TestBatchUpload_BadMimeFile_AppearsAsItemError(t *testing.T) {
 	assert.Equal(t, "mime_unsupported", resp.Items[0].Error.Code)
 	// Sanity: didn't return a redirect or 5xx.
 	assert.NotContains(t, strings.ToLower(rec.Body.String()), "internal")
+}
+
+// newCandidateForHandler builds a Candidate with predictable encrypted PII for handler tests.
+func newCandidateForHandler(t *testing.T, tenant shared.TenantID) *entities.Candidate {
+	t.Helper()
+	h, err := vo.NewContentHash("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+	require.NoError(t, err)
+	profile := vo.NewParsedProfile()
+	profile.Personal.FullName = "Bob"
+	c, err := entities.NewCandidate(entities.NewCandidateInput{
+		TenantID:    tenant,
+		ContentHash: h,
+		Profile:     profile,
+		Encrypted: entities.EncryptedPersonal{
+			FullName: "ENC:Bob",
+			Email:    "ENC:bob@example.com",
+			Phone:    "ENC:+91-999",
+		},
+		Location: "Mumbai",
+		Headline: "Engineer",
+		Source:   "manual_upload",
+	})
+	require.NoError(t, err)
+	return c
+}
+
+func TestGetCandidate_HappyPath(t *testing.T) {
+	tenant := shared.NewTenantID()
+	cand := newCandidateForHandler(t, tenant)
+
+	candRepo := newStubCandRepo()
+	candRepo.byID[cand.ID().String()] = cand
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/candidates/"+cand.ID().String(), nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp v1.CandidateDetailResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, cand.ID().String(), resp.ID)
+	assert.Equal(t, "Bob", resp.Personal.FullName)
+	assert.Equal(t, "bob@example.com", resp.Personal.Email)
+	assert.Equal(t, "+91-999", resp.Personal.Phone)
+	assert.Equal(t, "Mumbai", resp.Location)
+	assert.NotEmpty(t, resp.CreatedAt)
+}
+
+func TestGetCandidate_NotFound_Returns404(t *testing.T) {
+	candRepo := newStubCandRepo() // empty — nothing stored
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/candidates/"+uuid.New().String(), nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
+	candRepo := newStubCandRepo()
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, candHandler, zerolog.Nop())
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/candidates/"+uuid.New().String(), nil)
+	// No withIdentity — no auth context.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

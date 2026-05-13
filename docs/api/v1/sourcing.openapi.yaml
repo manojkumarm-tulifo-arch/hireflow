@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: hireflow — sourcing (slice 1)
-  version: "1.0.0-slice1"
+  title: hireflow — sourcing (slice 2)
+  version: "1.0.0-slice2"
   description: |
-    Resume ingestion endpoints. Slice 1 ships batch upload + batch status only.
-    Parsing, matching, candidate detail, lifecycle actions come in later slices.
+    Resume ingestion and candidate detail endpoints.
+    Slice 2 adds resume parsing, candidate aggregates, and the candidate detail endpoint.
 paths:
   /intents/{intent_id}/resumes:batch:
     post:
@@ -43,6 +43,20 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BatchStatusResponse' }
         '401': { description: missing identity }
+  /candidates/{candidate_id}:
+    get:
+      summary: Get candidate detail with decrypted PII
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: candidate_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: candidate detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CandidateDetailResponse' }
+        '401': { description: missing identity }
+        '404': { description: candidate not found }
 components:
   securitySchemes:
     bearerAuth:
@@ -96,3 +110,23 @@ components:
         status: { type: string }
         attempt: { type: integer }
         last_error: { type: string }
+    CandidateDetailResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        content_hash: { type: string }
+        personal: { $ref: '#/components/schemas/CandidatePersonal' }
+        location: { type: string }
+        headline: { type: string }
+        profile:
+          type: object
+          description: Full parsed profile with PII in cleartext (server-side decrypted).
+          additionalProperties: true
+        source: { type: string }
+        created_at: { type: string, format: date-time }
+    CandidatePersonal:
+      type: object
+      properties:
+        full_name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,18 +17,20 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/application/queries"
+	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 )
 
 // SourcingHandler exposes the v1 endpoints of the sourcing context.
 type SourcingHandler struct {
-	upload *commands.UploadResumeBatchHandler
-	status *queries.GetBatchStatusHandler
-	logger zerolog.Logger
+	upload    *commands.UploadResumeBatchHandler
+	status    *queries.GetBatchStatusHandler
+	candidate *queries.GetCandidateHandler
+	logger    zerolog.Logger
 }
 
 // NewSourcingHandler wires the handler.
-func NewSourcingHandler(upload *commands.UploadResumeBatchHandler, status *queries.GetBatchStatusHandler, logger zerolog.Logger) *SourcingHandler {
-	return &SourcingHandler{upload: upload, status: status, logger: logger}
+func NewSourcingHandler(upload *commands.UploadResumeBatchHandler, status *queries.GetBatchStatusHandler, candidate *queries.GetCandidateHandler, logger zerolog.Logger) *SourcingHandler {
+	return &SourcingHandler{upload: upload, status: status, candidate: candidate, logger: logger}
 }
 
 // BatchUpload handles POST /intents/{intent_id}/resumes:batch.
@@ -124,6 +127,51 @@ func (h *SourcingHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request)
 			Attempt:   it.Attempt,
 			LastError: it.LastError,
 		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// GetCandidate handles GET /candidates/{candidate_id}.
+func (h *SourcingHandler) GetCandidate(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	candidateID, err := uuid.Parse(chi.URLParam(r, "candidate_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_candidate_id", "candidate_id must be a uuid")
+		return
+	}
+	if h.candidate == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "candidate handler not configured")
+		return
+	}
+
+	out, err := h.candidate.Handle(r.Context(), identity.TenantID, candidateID)
+	if err != nil {
+		if errors.Is(err, repositories.ErrCandidateNotFound) {
+			writeError(w, http.StatusNotFound, "candidate_not_found", "candidate not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("get candidate failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	resp := CandidateDetailResponse{
+		ID:          out.ID.String(),
+		ContentHash: out.ContentHash,
+		Personal: CandidatePersonal{
+			FullName: out.Personal.FullName,
+			Email:    out.Personal.Email,
+			Phone:    out.Personal.Phone,
+		},
+		Location:  out.Location,
+		Headline:  out.Headline,
+		Profile:   out.Profile,
+		Source:    out.Source,
+		CreatedAt: out.CreatedAt.Format(time.RFC3339),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

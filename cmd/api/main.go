@@ -161,7 +161,8 @@ func main() {
 	})
 	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
 
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, logger)
+	// TODO(T14): wire a real GetCandidateHandler once CandidateRepository + PIIEncryptor are wired.
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, nil, logger)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})
