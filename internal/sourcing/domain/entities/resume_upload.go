@@ -217,6 +217,53 @@ func (u *ResumeUpload) transition(next vo.UploadStatus, errDetail string) error 
 
 func (u *ResumeUpload) touch() { u.updatedAt = time.Now().UTC() }
 
+// BeginParsing transitions Extracted → Parsing.
+func (u *ResumeUpload) BeginParsing() error {
+	return u.transition(vo.StatusParsing, "")
+}
+
+// RecordParsedProfile persists the parser's output bytes on the upload row.
+// Idempotent — calling twice overwrites. Must be called during Parsing.
+func (u *ResumeUpload) RecordParsedProfile(profileJSON []byte) error {
+	if u.status != vo.StatusParsing {
+		return ErrInvalidTransition
+	}
+	u.artifacts.SetParsedProfile(profileJSON)
+	u.touch()
+	return nil
+}
+
+// LinkCandidate attaches a candidate_id to this upload. Must be called during Parsing.
+func (u *ResumeUpload) LinkCandidate(candidateID uuid.UUID) error {
+	if u.status != vo.StatusParsing {
+		return ErrInvalidTransition
+	}
+	u.candidateID = candidateID
+	u.touch()
+	return nil
+}
+
+// CompleteParsed transitions Parsing → Parsed and emits ResumeParsed.
+// Requires the parsed profile artifact and a linked candidate.
+func (u *ResumeUpload) CompleteParsed() error {
+	if _, ok := u.artifacts.ParsedProfile(); !ok {
+		return errors.New("parsed profile artifact missing")
+	}
+	if u.candidateID == uuid.Nil {
+		return errors.New("candidate not linked")
+	}
+	if err := u.transition(vo.StatusParsed, ""); err != nil {
+		return err
+	}
+	u.emit(events.ResumeParsed{
+		UploadID:    u.id,
+		TenantID:    u.tenantID,
+		CandidateID: u.candidateID,
+		OccurredAt:  u.updatedAt,
+	})
+	return nil
+}
+
 // RehydrateInput is the input for RehydrateResumeUpload — bypasses event emission
 // for repository reads.
 type RehydrateInput struct {

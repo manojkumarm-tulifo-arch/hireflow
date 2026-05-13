@@ -39,6 +39,11 @@ func TestUploadStatus_CanTransitionTo(t *testing.T) {
 		{vo.StatusPending, vo.StatusFailed, true}, // fatal at any stage
 		{vo.StatusExtracted, vo.StatusScanning, false},
 		{vo.StatusFailed, vo.StatusPending, false},
+		{vo.StatusExtracted, vo.StatusParsing, true},
+		{vo.StatusParsing, vo.StatusParsed, true},
+		{vo.StatusParsing, vo.StatusFailed, true},
+		{vo.StatusParsed, vo.StatusParsing, false}, // Parsed is terminal
+		{vo.StatusExtracted, vo.StatusExtracted, false},
 	}
 	for _, tc := range cases {
 		got := tc.from.CanTransitionTo(tc.to)
@@ -47,9 +52,10 @@ func TestUploadStatus_CanTransitionTo(t *testing.T) {
 }
 
 func TestUploadStatus_IsTerminal(t *testing.T) {
-	assert.True(t, vo.StatusExtracted.IsTerminal())
+	assert.True(t, vo.StatusParsed.IsTerminal())
 	assert.True(t, vo.StatusFailed.IsTerminal())
 	assert.True(t, vo.StatusQuarantined.IsTerminal())
+	assert.False(t, vo.StatusExtracted.IsTerminal())
 	assert.False(t, vo.StatusPending.IsTerminal())
 	assert.False(t, vo.StatusScanning.IsTerminal())
 }

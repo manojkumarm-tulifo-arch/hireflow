@@ -11,11 +11,12 @@ const (
 	StatusPending     UploadStatus = "Pending"
 	StatusScanning    UploadStatus = "Scanning"
 	StatusExtracting  UploadStatus = "Extracting"
-	StatusParsing     UploadStatus = "Parsing"   // slice 2
-	StatusEmbedding   UploadStatus = "Embedding" // slice 3
-	StatusScoring     UploadStatus = "Scoring"   // slice 3
-	StatusExtracted   UploadStatus = "Extracted" // terminal in slice 1
-	StatusScored      UploadStatus = "Scored"    // terminal in slice 3
+	StatusParsing     UploadStatus = "Parsing"    // slice 2
+	StatusEmbedding   UploadStatus = "Embedding"  // slice 3
+	StatusScoring     UploadStatus = "Scoring"    // slice 3
+	StatusExtracted   UploadStatus = "Extracted"  // intermediate (not terminal) since slice 2
+	StatusParsed      UploadStatus = "Parsed"     // terminal in slice 2
+	StatusScored      UploadStatus = "Scored"     // terminal in slice 3
 	StatusFailed      UploadStatus = "Failed"
 	StatusQuarantined UploadStatus = "Quarantined"
 )
@@ -27,7 +28,7 @@ var ErrInvalidStatus = errors.New("invalid upload status")
 func ParseUploadStatus(s string) (UploadStatus, error) {
 	switch UploadStatus(s) {
 	case StatusPending, StatusScanning, StatusExtracting, StatusParsing,
-		StatusEmbedding, StatusScoring, StatusExtracted, StatusScored,
+		StatusEmbedding, StatusScoring, StatusExtracted, StatusParsed, StatusScored,
 		StatusFailed, StatusQuarantined:
 		return UploadStatus(s), nil
 	default:
@@ -38,7 +39,7 @@ func ParseUploadStatus(s string) (UploadStatus, error) {
 // IsTerminal reports whether the status is a terminal state (no further worker action).
 func (s UploadStatus) IsTerminal() bool {
 	switch s {
-	case StatusExtracted, StatusScored, StatusFailed, StatusQuarantined:
+	case StatusParsed, StatusScored, StatusFailed, StatusQuarantined:
 		return true
 	}
 	return false
@@ -60,8 +61,11 @@ func (s UploadStatus) CanTransitionTo(next UploadStatus) bool {
 	case StatusScanning:
 		return next == StatusExtracting
 	case StatusExtracting:
-		// Slice 1 terminates here; slice 2 will transition to Parsing instead.
-		return next == StatusExtracted || next == StatusParsing
+		return next == StatusExtracted
+	case StatusExtracted:
+		return next == StatusParsing
+	case StatusParsing:
+		return next == StatusParsed
 	}
 	return false
 }

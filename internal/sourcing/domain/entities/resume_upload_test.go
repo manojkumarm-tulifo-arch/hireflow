@@ -150,3 +150,70 @@ func TestMarkFailed_RecordsReasonAndEmitsEvent(t *testing.T) {
 	require.Len(t, evs, 1)
 	assert.Equal(t, "sourcing.ResumeUploadFailed", evs[0].EventName())
 }
+
+func mustParsedJSON(t *testing.T) []byte {
+	t.Helper()
+	return []byte(`{"schema_version":1,"headline":"Senior Backend Engineer"}`)
+}
+
+func TestParsingFlow_HappyPath(t *testing.T) {
+	u := newUpload(t)
+	_ = u.PullEvents()
+	require.NoError(t, u.BeginScanning())
+	require.NoError(t, u.BeginExtracting())
+	require.NoError(t, u.RecordExtractedText("resume text", 2))
+	require.NoError(t, u.CompleteExtracted())
+	_ = u.PullEvents() // drain ResumeExtracted
+
+	require.NoError(t, u.BeginParsing())
+	assert.Equal(t, vo.StatusParsing, u.Status())
+
+	require.NoError(t, u.RecordParsedProfile(mustParsedJSON(t)))
+
+	candID := uuid.New()
+	require.NoError(t, u.LinkCandidate(candID))
+	assert.Equal(t, candID, u.CandidateID())
+
+	require.NoError(t, u.CompleteParsed())
+	assert.Equal(t, vo.StatusParsed, u.Status())
+	assert.True(t, u.Status().IsTerminal())
+
+	evs := u.PullEvents()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "sourcing.ResumeParsed", evs[0].EventName())
+}
+
+func TestParsingFlow_RecordParsedProfile_OnlyDuringParsing(t *testing.T) {
+	u := newUpload(t)
+	err := u.RecordParsedProfile(mustParsedJSON(t))
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestParsingFlow_LinkCandidate_OnlyDuringParsing(t *testing.T) {
+	u := newUpload(t)
+	err := u.LinkCandidate(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestParsingFlow_CompleteParsed_RequiresProfileAndCandidate(t *testing.T) {
+	u := newUpload(t)
+	_ = u.PullEvents()
+	require.NoError(t, u.BeginScanning())
+	require.NoError(t, u.BeginExtracting())
+	require.NoError(t, u.RecordExtractedText("x", 1))
+	require.NoError(t, u.CompleteExtracted())
+	require.NoError(t, u.BeginParsing())
+
+	// Without profile + candidate: CompleteParsed must reject.
+	err := u.CompleteParsed()
+	assert.Error(t, err)
+
+	// With profile only — still missing candidate.
+	require.NoError(t, u.RecordParsedProfile(mustParsedJSON(t)))
+	err = u.CompleteParsed()
+	assert.Error(t, err)
+
+	// Now link a candidate; complete succeeds.
+	require.NoError(t, u.LinkCandidate(uuid.New()))
+	require.NoError(t, u.CompleteParsed())
+}
