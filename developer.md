@@ -121,6 +121,11 @@ export ANTHROPIC_TIMEOUT="30s"           # optional, default 30s
 | SOURCING_OCR_THRESHOLD  | 50                 | Char threshold below which OCR fallback runs              |
 | SOURCING_PARSER_BACKEND | claude             | (only option in slice 2)                                  |
 | SOURCING_OCR_BACKEND    | claude             | (only option in slice 2)                                  |
+| VOYAGE_API_KEY          | (required)         | Voyage AI key for Embedder                                |
+| VOYAGE_MODEL            | `voyage-3`         | Voyage embedding model                                    |
+| SOURCING_JUDGE_TOP_K    | `20`               | Top-K applications per intent that get LLM-judged        |
+| SOURCING_MATCH_POOL     | `4`                | Match worker goroutine count                              |
+| SOURCING_JUDGE_POOL     | `2`                | Judge worker goroutine count                              |
 
 Switching paths later is just changing `DATABASE_URL` and re-running `make migrate-up` — both DBs can coexist on different ports.
 

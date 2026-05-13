@@ -16,7 +16,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"github.com/rs/zerolog"
 
 	authcommands "github.com/hustle/hireflow/internal/auth/application/commands"
@@ -47,13 +49,18 @@ import (
 	sourcingqueries "github.com/hustle/hireflow/internal/sourcing/application/queries"
 	sourcinghttp "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	sourcingsvc "github.com/hustle/hireflow/internal/sourcing/domain/services"
+	sourcingclients "github.com/hustle/hireflow/internal/sourcing/infrastructure/clients"
 	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
+	sourcingembed "github.com/hustle/hireflow/internal/sourcing/infrastructure/embedding"
+	sourcingjudging "github.com/hustle/hireflow/internal/sourcing/infrastructure/judging"
 	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
 	sourcingocr "github.com/hustle/hireflow/internal/sourcing/infrastructure/ocr"
 	sourcingparsing "github.com/hustle/hireflow/internal/sourcing/infrastructure/parsing"
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
+	sourcingscoring "github.com/hustle/hireflow/internal/sourcing/infrastructure/scoring"
 	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
+	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
 )
@@ -75,7 +82,18 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	poolCfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("parse database url")
+	}
+	// pgvector type codec registration. Without this, pgx won't know how to
+	// serialize []float32 ↔ Postgres vector(N). AfterConnect fires once per
+	// physical connection so every conn in the pool gets the codec registered.
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgvectorpgx.RegisterTypes(ctx, conn)
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("connect postgres")
 	}
@@ -189,14 +207,83 @@ func main() {
 	})
 	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
 
-	// T19 will wire the real listApplications handler; nil triggers a 503 guard in the handler.
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, nil, logger)
+	// Slice 3 — scoring pipeline.
+	voyageKey := os.Getenv("VOYAGE_API_KEY")
+	if voyageKey == "" {
+		logger.Fatal().Msg("VOYAGE_API_KEY is required")
+	}
+	voyageModel := getenv("VOYAGE_MODEL", "voyage-3")
+	judgeTopK := getenvInt("SOURCING_JUDGE_TOP_K", 20)
+	matchPoolSize := getenvInt("SOURCING_MATCH_POOL", 4)
+	judgePoolSize := getenvInt("SOURCING_JUDGE_POOL", 2)
+
+	voyageClient := sourcingembed.NewVoyageClient(voyageKey, voyageModel)
+	embedder := sourcingembed.NewVoyage(voyageClient)
+	matchScorer := sourcingscoring.NewInProcMatchScorer()
+	llmJudge := sourcingjudging.NewAnthropicJudge(anthropicClient.SDK(), anthropicCfg.Model)
+	sourcingIntentReader := sourcingclients.NewPostgresIntentReader(pool)
+
+	applicationRepo := sourcingpersist.NewPostgresApplicationRepository(pool)
+	intentEmbeddingRepo := sourcingpersist.NewPostgresIntentEmbeddingRepository(pool)
+	judgeJobRepo := sourcingpersist.NewPostgresJudgeJobRepository(pool)
+
+	// Score command handlers.
+	scoreCandidateHandler := sourcingcommands.NewScoreCandidateHandler(candidateRepo, sourcingIntentReader, applicationRepo)
+	scoreIntentHandler := sourcingcommands.NewScoreIntentHandler(
+		sourcingIntentReader,
+		applicationRepo,
+		candidateRepo,
+		judgeJobRepo,
+		sourcingcommands.ScoreIntentConfig{JudgeTopK: judgeTopK},
+	)
+	scoreApplicationHandler := sourcingcommands.NewScoreApplicationHandler(
+		applicationRepo,
+		candidateRepo,
+		sourcingIntentReader,
+		embedder,
+		matchScorer,
+		intentEmbeddingRepo,
+		sourcingcommands.ScoreApplicationConfig{
+			RetryBackoff: []time.Duration{1 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour, 4 * time.Hour},
+		},
+	)
+	judgeApplicationHandler := sourcingcommands.NewJudgeApplicationHandler(
+		applicationRepo,
+		candidateRepo,
+		sourcingIntentReader,
+		llmJudge,
+		judgeJobRepo,
+		sourcingcommands.JudgeApplicationConfig{
+			RetryBackoff: []time.Duration{1 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour, 4 * time.Hour},
+		},
+	)
+
+	// List applications query handler — replaces the nil from T18.
+	listApplicationsHandler := sourcingqueries.NewListApplicationsHandler(applicationRepo, candidateRepo, piiEnc)
+
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, listApplicationsHandler, logger)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})
 
 	sourcingPool := sourcingworker.NewPool(sourcingRepo, processHandler, sourcingworker.Config{
 		Size:         getenvInt("SOURCING_WORKER_POOL", 4),
+		PollInterval: time.Second,
+	}, logger)
+
+	// Sourcing event subscribers.
+	intentConfirmedSourcingConsumer := sourcingsubs.NewIntentConfirmedConsumer(scoreIntentHandler, logger)
+	candidateParsedConsumer := sourcingsubs.NewCandidateParsedConsumer(scoreCandidateHandler, logger)
+	bus.Subscribe("hiringintent.IntentConfirmed", intentConfirmedSourcingConsumer.Handle)
+	bus.Subscribe("sourcing.CandidateParsed", candidateParsedConsumer.Handle)
+
+	// Worker pools for scoring pipeline.
+	matchPool := sourcingworker.NewMatchPool(applicationRepo, scoreApplicationHandler, sourcingworker.Config{
+		Size:         matchPoolSize,
+		PollInterval: time.Second,
+	}, logger)
+	judgePool := sourcingworker.NewJudgePool(judgeJobRepo, judgeApplicationHandler, sourcingworker.Config{
+		Size:         judgePoolSize,
 		PollInterval: time.Second,
 	}, logger)
 
@@ -300,6 +387,18 @@ func main() {
 	go func() {
 		defer wg.Done()
 		sourcingPool.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		matchPool.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		judgePool.Run(ctx)
 	}()
 
 	wg.Add(1)
