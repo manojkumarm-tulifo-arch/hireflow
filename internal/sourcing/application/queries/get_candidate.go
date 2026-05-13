@@ -7,10 +7,10 @@ import (
 
 	"github.com/google/uuid"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // GetCandidateHandler returns the full candidate detail with PII decrypted.

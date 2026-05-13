@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // EncryptedPersonal holds the ciphertext form of PII fields produced by the

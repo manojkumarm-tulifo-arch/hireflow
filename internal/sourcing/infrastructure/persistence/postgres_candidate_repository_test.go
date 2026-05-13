@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 	"github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 func newCandidate(t *testing.T, tenant shared.TenantID, hash string) *entities.Candidate {

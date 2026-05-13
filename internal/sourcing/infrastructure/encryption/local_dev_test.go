@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 )
 
 func newEncryptor(t *testing.T) *encryption.LocalDevDEK {

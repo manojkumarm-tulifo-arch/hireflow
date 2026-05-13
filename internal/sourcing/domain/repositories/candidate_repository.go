@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 )
 
 // ErrCandidateNotFound is returned when a candidate isn't found.

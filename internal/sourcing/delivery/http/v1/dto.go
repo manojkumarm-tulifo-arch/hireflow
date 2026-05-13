@@ -59,14 +59,14 @@ type errorBody struct {
 
 // CandidateDetailResponse is the response body for GET /candidates/{candidate_id}.
 type CandidateDetailResponse struct {
-	ID          string              `json:"id"`
-	ContentHash string              `json:"content_hash"`
-	Personal    CandidatePersonal   `json:"personal"`
-	Location    string              `json:"location,omitempty"`
-	Headline    string              `json:"headline,omitempty"`
-	Profile     json.RawMessage     `json:"profile"`
-	Source      string              `json:"source"`
-	CreatedAt   string              `json:"created_at"`
+	ID          string            `json:"id"`
+	ContentHash string            `json:"content_hash"`
+	Personal    CandidatePersonal `json:"personal"`
+	Location    string            `json:"location,omitempty"`
+	Headline    string            `json:"headline,omitempty"`
+	Profile     json.RawMessage   `json:"profile"`
+	Source      string            `json:"source"`
+	CreatedAt   string            `json:"created_at"`
 }
 
 // CandidatePersonal is the decrypted PII surface in the candidate detail response.
