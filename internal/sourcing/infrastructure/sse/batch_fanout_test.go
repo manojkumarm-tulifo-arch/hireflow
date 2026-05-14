@@ -1,6 +1,7 @@
 package sse_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -149,6 +150,41 @@ func TestChannelFull_NoBlocking(t *testing.T) {
 	}
 drained:
 	assert.Equal(t, 16, count, "only 16 events should be in the channel (17th was dropped)")
+}
+
+// TestChannelFull_LogsAggregatedDropCount verifies that drops are logged
+// once per OnEvent call with the count of subscribers that missed it, rather
+// than once per dropped subscriber. The logger fires outside the critical
+// section so an n-subscriber fanout that all drop doesn't pay n log writes
+// while holding the lock.
+func TestChannelFull_LogsAggregatedDropCount(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	f := sse.NewBatchEventFanout(logger)
+	batchID := uuid.New()
+
+	// Two subscribers; fill both buffers then send one more.
+	_, cleanupA := f.Subscribe(batchID)
+	defer cleanupA()
+	_, cleanupB := f.Subscribe(batchID)
+	defer cleanupB()
+
+	ev := fixedEvent(batchID)
+	for range 16 {
+		require.NoError(t, f.OnEvent(context.Background(), ev))
+	}
+	buf.Reset() // ignore the 16 successful sends (no logging anyway)
+
+	// 17th event: both subscribers should drop.
+	require.NoError(t, f.OnEvent(context.Background(), ev))
+
+	out := buf.String()
+	require.Contains(t, out, "sse subscriber channel full", "expected drop log line")
+	require.Contains(t, out, `"dropped":2`, "drop count should be aggregated as 2")
+	require.Contains(t, out, batchID.String(), "log should include batch_id")
+	// One log line total — not one per subscriber.
+	assert.Equal(t, 1, strings.Count(out, "sse subscriber channel full"),
+		"drops should be aggregated into a single log line per OnEvent call")
 }
 
 // TestUnsubscribe_NoMoreEvents verifies that after the cleanup func is called,
