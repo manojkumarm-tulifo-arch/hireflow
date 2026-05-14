@@ -37,6 +37,9 @@ func (r *stubCandidateRepo) ListByTenant(context.Context, shared.TenantID) ([]*e
 func (r *stubCandidateRepo) UpdateProfileEmbedding(context.Context, uuid.UUID, shared.TenantID, []float32) error {
 	return nil
 }
+func (r *stubCandidateRepo) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // Reversible "encryptor" for tests — prepends "ENC:" to plaintext.
 type stubEncryptor struct{}

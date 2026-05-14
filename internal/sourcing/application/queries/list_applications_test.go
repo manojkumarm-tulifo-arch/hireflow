@@ -70,6 +70,9 @@ func (r *stubListCandidateRepo) ListByTenant(_ context.Context, _ shared.TenantI
 func (r *stubListCandidateRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
 }
+func (r *stubListCandidateRepo) EraseCascade(_ context.Context, _ shared.TenantID, id uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // stubListEncryptor stores plaintext as "ENC:<plaintext>" and reverses it.
 type stubListEncryptor struct{}

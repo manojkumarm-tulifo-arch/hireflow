@@ -123,6 +123,9 @@ func (r *stubCandRepo) ListByTenant(_ context.Context, _ shared.TenantID) ([]*en
 func (r *stubCandRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
 }
+func (r *stubCandRepo) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // stubEnc is a reversible encryptor: Encrypt prepends "ENC:", Decrypt strips it.
 type stubEnc struct{}
@@ -144,8 +147,8 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	status := queries.NewGetBatchStatusHandler(repo)
 	candRepo := newStubCandRepo()
 	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
-	// nil for listApplications and transition — slice-1/2 tests don't exercise those endpoints.
-	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, zerolog.Nop()), repo, store
+	// nil for listApplications, transition, and eraseCandidate — slice-1/2 tests don't exercise those endpoints.
+	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -345,7 +348,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -375,7 +378,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -396,7 +399,7 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -447,7 +450,7 @@ func buildListApplicationsHandler(t *testing.T, appRepo repositories.Application
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	listAppsHandler := queries.NewListApplicationsHandler(appRepo, candRepo, stubEnc{})
-	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, nil, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, nil, nil, nil, zerolog.Nop())
 }
 
 // buildScoredApplicationForHandler returns a scored Application with the given candidate.
@@ -639,7 +642,7 @@ func buildTransitionSourcingHandler(t *testing.T, appRepo repositories.Applicati
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	transitionH := commands.NewTransitionApplicationHandler(appRepo, audit)
-	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, nil, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, nil, nil, nil, zerolog.Nop())
 }
 
 // buildScoredApp builds a scored Application seeded in the given repo.
@@ -958,7 +961,7 @@ func buildRetryUploadHandler(t *testing.T, uploadRepo repositories.ResumeUploadR
 	batchUpload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	retryH := commands.NewRetryResumeUploadHandler(uploadRepo)
-	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, retryH, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, retryH, nil, nil, zerolog.Nop())
 }
 
 // seedUploadInStatus rehydrates a ResumeUpload in the given status into repo.
@@ -1083,7 +1086,7 @@ func buildRescoreIntentHandler(t *testing.T, appRepo repositories.ApplicationRep
 	status := queries.NewGetBatchStatusHandler(repo)
 	dispatcher := &stubScoreIntentDispatcher{}
 	rescoreH := commands.NewRescoreIntentHandler(appRepo, dispatcher, auditinfra.NewNoopAuditWriter())
-	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, nil, rescoreH, zerolog.Nop())
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, nil, rescoreH, nil, zerolog.Nop())
 }
 
 func TestRescoreIntent_HappyPath_Returns202(t *testing.T) {

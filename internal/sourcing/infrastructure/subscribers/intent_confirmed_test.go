@@ -113,6 +113,9 @@ func (c *candidateRepoStub) ListByTenant(_ context.Context, _ shared.TenantID) (
 func (c *candidateRepoStub) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
 }
+func (c *candidateRepoStub) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // judgeJobRepoStub accepts saves without storing.
 type judgeJobRepoStub struct{}

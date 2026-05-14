@@ -397,6 +397,9 @@ func (r *fakeExtendedCandidateRepo) UpdateProfileEmbedding(_ context.Context, _ 
 	r.updateEmbCalls++
 	return nil
 }
+func (r *fakeExtendedCandidateRepo) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // ---------------------------------------------------------------------------
 // Test-data helpers

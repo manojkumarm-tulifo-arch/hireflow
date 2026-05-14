@@ -33,6 +33,7 @@ type SourcingHandler struct {
 	transition       *commands.TransitionApplicationHandler
 	retryUpload      *commands.RetryResumeUploadHandler
 	rescoreIntent    *commands.RescoreIntentHandler
+	eraseCandidate   *commands.EraseCandidateHandler
 	logger           zerolog.Logger
 }
 
@@ -45,6 +46,7 @@ func NewSourcingHandler(
 	transition *commands.TransitionApplicationHandler,
 	retryUpload *commands.RetryResumeUploadHandler,
 	rescoreIntent *commands.RescoreIntentHandler,
+	eraseCandidate *commands.EraseCandidateHandler,
 	logger zerolog.Logger,
 ) *SourcingHandler {
 	return &SourcingHandler{
@@ -55,6 +57,7 @@ func NewSourcingHandler(
 		transition:       transition,
 		retryUpload:      retryUpload,
 		rescoreIntent:    rescoreIntent,
+		eraseCandidate:   eraseCandidate,
 		logger:           logger,
 	}
 }
@@ -449,6 +452,41 @@ func (h *SourcingHandler) RescoreIntent(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// EraseCandidate handles DELETE /candidates/{candidate_id}.
+// Returns 204 on success, 404 if the candidate is not found.
+func (h *SourcingHandler) EraseCandidate(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	candidateID, err := uuid.Parse(chi.URLParam(r, "candidate_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_candidate_id", "candidate_id must be a uuid")
+		return
+	}
+	if h.eraseCandidate == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "erase candidate handler not configured")
+		return
+	}
+
+	handleErr := h.eraseCandidate.Handle(r.Context(), commands.EraseCandidateInput{
+		TenantID:    identity.TenantID,
+		ActorUserID: identity.RecruiterID.UUID(),
+		CandidateID: candidateID,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrCandidateNotFound) {
+			writeError(w, http.StatusNotFound, "candidate_not_found", "candidate not found")
+			return
+		}
+		h.logger.Error().Err(handleErr).Msg("erase candidate failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // multipartSource adapts multipart.Reader to dto.BatchItemSource.
