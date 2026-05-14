@@ -306,13 +306,6 @@ func TestMarkEmbedFailed_RejectsWhenNotNew(t *testing.T) {
 
 // ── MarkStale ─────────────────────────────────────────────────────────────────
 
-func TestMarkStale_FromNew(t *testing.T) {
-	app, _ := entities.NewApplication(validAppInput(t))
-	err := app.MarkStale()
-	require.NoError(t, err)
-	assert.Equal(t, vo.AppStatusStale, app.Status())
-}
-
 func TestMarkStale_FromScored(t *testing.T) {
 	app, _ := entities.NewApplication(validAppInput(t))
 	_ = app.RecordRuleMatch(passedRuleMatch())
@@ -325,7 +318,41 @@ func TestMarkStale_FromScored(t *testing.T) {
 	assert.Equal(t, vo.AppStatusStale, app.Status())
 }
 
-func TestMarkStale_RejectsFromTerminal(t *testing.T) {
+func TestMarkStale_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromShortlisted(t *testing.T) {
+	app := shortlistedApp(t)
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromInterviewing(t *testing.T) {
+	app := interviewingApp(t)
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromRejected(t *testing.T) {
+	app := scoredApp(t)
+	_ = app.Reject(uuid.New(), "not a fit")
+	_ = app.PullEvents()
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromHired(t *testing.T) {
+	app := scoredApp(t)
+	_ = app.Hire(uuid.New())
+	_ = app.PullEvents()
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromExcluded(t *testing.T) {
 	app, _ := entities.NewApplication(validAppInput(t))
 	_ = app.Exclude("reasons")
 	_ = app.PullEvents()

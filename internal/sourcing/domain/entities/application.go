@@ -274,9 +274,10 @@ func (a *Application) MarkJudgeFailed(reason string) error {
 	return nil
 }
 
-// MarkStale transitions any non-terminal status to Stale.
+// MarkStale transitions Scored → Stale.
+// The permitted source states are governed by CanTransitionTo; today only Scored qualifies.
 func (a *Application) MarkStale() error {
-	if a.status.IsTerminal() {
+	if !a.status.CanTransitionTo(vo.AppStatusStale) {
 		return ErrInvalidTransition
 	}
 	t := time.Now().UTC()
