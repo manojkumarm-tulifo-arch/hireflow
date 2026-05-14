@@ -261,8 +261,8 @@ func main() {
 	// List applications query handler — replaces the nil from T18.
 	listApplicationsHandler := sourcingqueries.NewListApplicationsHandler(applicationRepo, candidateRepo, piiEnc)
 
-	// TODO(T13): wire transitionApplicationHandler, retryResumeUploadHandler, rescoreIntentHandler, and eraseCandidateHandler here.
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, listApplicationsHandler, nil, nil, nil, nil, logger)
+	// TODO(T13): wire transitionApplicationHandler, retryResumeUploadHandler, rescoreIntentHandler, eraseCandidateHandler, and fanout here.
+	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, listApplicationsHandler, nil, nil, nil, nil, nil, 0, logger)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})

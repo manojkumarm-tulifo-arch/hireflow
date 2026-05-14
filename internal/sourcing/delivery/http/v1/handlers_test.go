@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -26,8 +27,10 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/application/queries"
 	v1 "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
+	domainevents "github.com/hustle/hireflow/internal/sourcing/domain/events"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
+	"github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 )
 
 // Reuse the in-memory fakes defined in commands_test by re-declaring here
@@ -148,7 +151,7 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	candRepo := newStubCandRepo()
 	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
 	// nil for listApplications, transition, and eraseCandidate — slice-1/2 tests don't exercise those endpoints.
-	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop()), repo, store
+	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -348,7 +351,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -378,7 +381,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -399,7 +402,7 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -450,7 +453,7 @@ func buildListApplicationsHandler(t *testing.T, appRepo repositories.Application
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	listAppsHandler := queries.NewListApplicationsHandler(appRepo, candRepo, stubEnc{})
-	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, nil, nil, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, nil, nil, nil, nil, 0, zerolog.Nop())
 }
 
 // buildScoredApplicationForHandler returns a scored Application with the given candidate.
@@ -642,7 +645,7 @@ func buildTransitionSourcingHandler(t *testing.T, appRepo repositories.Applicati
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	transitionH := commands.NewTransitionApplicationHandler(appRepo, audit)
-	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, nil, nil, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, nil, nil, nil, nil, 0, zerolog.Nop())
 }
 
 // buildScoredApp builds a scored Application seeded in the given repo.
@@ -961,7 +964,7 @@ func buildRetryUploadHandler(t *testing.T, uploadRepo repositories.ResumeUploadR
 	batchUpload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	retryH := commands.NewRetryResumeUploadHandler(uploadRepo)
-	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, retryH, nil, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, retryH, nil, nil, nil, 0, zerolog.Nop())
 }
 
 // seedUploadInStatus rehydrates a ResumeUpload in the given status into repo.
@@ -1086,7 +1089,7 @@ func buildRescoreIntentHandler(t *testing.T, appRepo repositories.ApplicationRep
 	status := queries.NewGetBatchStatusHandler(repo)
 	dispatcher := &stubScoreIntentDispatcher{}
 	rescoreH := commands.NewRescoreIntentHandler(appRepo, dispatcher, auditinfra.NewNoopAuditWriter())
-	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, nil, rescoreH, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, nil, rescoreH, nil, nil, 0, zerolog.Nop())
 }
 
 func TestRescoreIntent_HappyPath_Returns202(t *testing.T) {
@@ -1134,4 +1137,184 @@ func TestRescoreIntent_InvalidIntentID_Returns400(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// BatchEvents SSE endpoint tests
+// ---------------------------------------------------------------------------
+
+// newSSEHandler builds a SourcingHandler wired with a real BatchEventFanout
+// and a configurable heartbeat interval (for fast testing).
+func newSSEHandler(t *testing.T, heartbeat time.Duration) (*v1.SourcingHandler, *sse.BatchEventFanout) {
+	t.Helper()
+	fanout := sse.NewBatchEventFanout(zerolog.Nop())
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, nil, nil, nil, nil, nil, nil, fanout, heartbeat, zerolog.Nop())
+	return h, fanout
+}
+
+func TestBatchEvents_StreamsEvent(t *testing.T) {
+	const timeout = 5 * time.Second
+	h, fanout := newSSEHandler(t, 30*time.Second) // long heartbeat so only real events fire
+
+	batchID := uuid.New()
+	tenant := shared.NewTenantID()
+
+	// Inject identity via middleware since withIdentity only works on
+	// httptest.Request; a real httptest.NewServer needs a middleware approach.
+	authRouter := chi.NewRouter()
+	authRouter.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{
+				TenantID:    tenant,
+				RecruiterID: shared.NewRecruiterID(),
+			}))
+			next.ServeHTTP(w, r)
+		})
+	})
+	v1.Mount(authRouter, h)
+
+	authSrv := httptest.NewServer(authRouter)
+	defer authSrv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	authURL := authSrv.URL + "/resumes/batches/" + batchID.String() + "/events"
+	authReq, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(authReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	// Read bytes from the SSE body in a goroutine.
+	received := make(chan string, 8)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				received <- string(buf[:n])
+			}
+			if readErr != nil {
+				close(received)
+				return
+			}
+		}
+	}()
+
+	// Give the subscriber a moment to register, then fire a real domain event.
+	time.Sleep(20 * time.Millisecond)
+	ev := domainevents.ResumeUploadAccepted{
+		UploadID:    uuid.New(),
+		TenantID:    tenant,
+		IntentID:    uuid.New(),
+		BatchID:     batchID,
+		ContentHash: "abc123",
+		OccurredAt:  time.Now().UTC(),
+	}
+	require.NoError(t, fanout.OnEvent(context.Background(), ev))
+
+	select {
+	case got, ok := <-received:
+		require.True(t, ok, "channel closed before receiving data")
+		assert.Contains(t, got, "item_accepted")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSE event")
+	}
+}
+
+func TestBatchEvents_Heartbeat(t *testing.T) {
+	const heartbeatInterval = 50 * time.Millisecond
+	h, _ := newSSEHandler(t, heartbeatInterval)
+
+	tenant := shared.NewTenantID()
+	authRouter := chi.NewRouter()
+	authRouter.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{
+				TenantID:    tenant,
+				RecruiterID: shared.NewRecruiterID(),
+			}))
+			next.ServeHTTP(w, r)
+		})
+	})
+	v1.Mount(authRouter, h)
+
+	srv := httptest.NewServer(authRouter)
+	defer srv.Close()
+
+	batchID := uuid.New()
+	url := srv.URL + "/resumes/batches/" + batchID.String() + "/events"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	received := make(chan string, 8)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				received <- string(buf[:n])
+			}
+			if err != nil {
+				close(received)
+				return
+			}
+		}
+	}()
+
+	// Wait for a heartbeat — should arrive within 200ms (4x the 50ms interval).
+	select {
+	case got, ok := <-received:
+		require.True(t, ok)
+		assert.Contains(t, got, ":ping")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for SSE heartbeat")
+	}
+}
+
+func TestBatchEvents_BadUUID_Returns400(t *testing.T) {
+	h, _ := newSSEHandler(t, 30*time.Second)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/resumes/batches/not-a-uuid/events", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestBatchEvents_NoIdentity_Returns401(t *testing.T) {
+	h, _ := newSSEHandler(t, 30*time.Second)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/resumes/batches/"+uuid.New().String()+"/events", nil)
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

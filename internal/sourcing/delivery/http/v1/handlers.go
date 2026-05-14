@@ -22,7 +22,11 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
+	"github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 )
+
+// defaultHeartbeat is the SSE heartbeat interval used in production.
+const defaultHeartbeat = 30 * time.Second
 
 // SourcingHandler exposes the v1 endpoints of the sourcing context.
 type SourcingHandler struct {
@@ -34,10 +38,15 @@ type SourcingHandler struct {
 	retryUpload      *commands.RetryResumeUploadHandler
 	rescoreIntent    *commands.RescoreIntentHandler
 	eraseCandidate   *commands.EraseCandidateHandler
+	fanout           *sse.BatchEventFanout
+	heartbeat        time.Duration
 	logger           zerolog.Logger
 }
 
-// NewSourcingHandler wires the handler.
+// NewSourcingHandler wires the handler. The fanout may be nil if the
+// BatchEvents endpoint is not in use (e.g. in tests or before T13 wiring).
+// The heartbeat interval controls how often SSE keep-alive comments are sent;
+// pass 0 to use the default of 30 s.
 func NewSourcingHandler(
 	upload *commands.UploadResumeBatchHandler,
 	status *queries.GetBatchStatusHandler,
@@ -47,8 +56,13 @@ func NewSourcingHandler(
 	retryUpload *commands.RetryResumeUploadHandler,
 	rescoreIntent *commands.RescoreIntentHandler,
 	eraseCandidate *commands.EraseCandidateHandler,
+	fanout *sse.BatchEventFanout,
+	heartbeat time.Duration,
 	logger zerolog.Logger,
 ) *SourcingHandler {
+	if heartbeat <= 0 {
+		heartbeat = defaultHeartbeat
+	}
 	return &SourcingHandler{
 		upload:           upload,
 		status:           status,
@@ -58,6 +72,8 @@ func NewSourcingHandler(
 		retryUpload:      retryUpload,
 		rescoreIntent:    rescoreIntent,
 		eraseCandidate:   eraseCandidate,
+		fanout:           fanout,
+		heartbeat:        heartbeat,
 		logger:           logger,
 	}
 }
@@ -482,6 +498,65 @@ func (h *SourcingHandler) EraseCandidate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// BatchEvents handles GET /resumes/batches/{batch_id}/events.
+// It opens a long-lived SSE stream that delivers per-upload progress events
+// for the given batch. A heartbeat comment (":ping\n\n") is sent every
+// h.heartbeat to keep the connection alive through proxies.
+func (h *SourcingHandler) BatchEvents(w http.ResponseWriter, r *http.Request) {
+	_, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+
+	batchID, err := uuid.Parse(chi.URLParam(r, "batch_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_batch_id", "batch_id must be a uuid")
+		return
+	}
+
+	if h.fanout == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "SSE fanout not configured")
+		return
+	}
+
+	// Set SSE headers before writing any body — must come before WriteHeader.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// ResponseWriter doesn't support streaming (e.g. httptest.NewRecorder).
+		return
+	}
+	// Flush the headers immediately so the client unblocks from Do().
+	flusher.Flush()
+
+	ch, cleanup := h.fanout.Subscribe(batchID)
+	defer cleanup()
+
+	heartbeat := time.NewTicker(h.heartbeat)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			_, _ = io.WriteString(w, ":ping\n\n")
+			flusher.Flush()
+		case payload, ok := <-ch:
+			if !ok {
+				return
+			}
+			_, _ = w.Write(payload)
+			flusher.Flush()
+		}
+	}
 }
 
 // multipartSource adapts multipart.Reader to dto.BatchItemSource.
