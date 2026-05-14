@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	auditdomain "github.com/hustle/hireflow/internal/shared/audit/domain"
+	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
@@ -143,8 +144,8 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	status := queries.NewGetBatchStatusHandler(repo)
 	candRepo := newStubCandRepo()
 	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
-	// nil for listApplications — slice-1/2 tests don't exercise that endpoint.
-	return v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop()), repo, store
+	// nil for listApplications and transition — slice-1/2 tests don't exercise those endpoints.
+	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -344,7 +345,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -374,7 +375,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -395,7 +396,7 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -443,7 +444,7 @@ func buildListApplicationsHandler(t *testing.T, appRepo repositories.Application
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	listAppsHandler := queries.NewListApplicationsHandler(appRepo, candRepo, stubEnc{})
-	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, zerolog.Nop())
 }
 
 // buildScoredApplicationForHandler returns a scored Application with the given candidate.
@@ -618,11 +619,6 @@ func (r *transitionAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ share
 	return nil, nil
 }
 
-// noopAuditWriter satisfies auditdomain.AuditWriter and always succeeds.
-type noopAuditWriter struct{}
-
-func (noopAuditWriter) Write(_ context.Context, _ auditdomain.AuditEvent) error { return nil }
-
 // failAuditWriter satisfies auditdomain.AuditWriter and always fails.
 type failAuditWriter struct{ err error }
 
@@ -636,10 +632,8 @@ func buildTransitionSourcingHandler(t *testing.T, appRepo repositories.Applicati
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, nil, nil, zerolog.Nop())
 	transitionH := commands.NewTransitionApplicationHandler(appRepo, audit)
-	h.SetTransitionHandler(transitionH)
-	return h
+	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, zerolog.Nop())
 }
 
 // buildScoredApp builds a scored Application seeded in the given repo.
@@ -671,7 +665,7 @@ func TestShortlistApplication_HappyPath_Returns204(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 	app := buildScoredApp(t, appRepo, tenant)
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -686,7 +680,7 @@ func TestShortlistApplication_HappyPath_Returns204(t *testing.T) {
 func TestShortlistApplication_NotFound_Returns404(t *testing.T) {
 	appRepo := newTransitionAppRepo() // empty
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -701,7 +695,7 @@ func TestShortlistApplication_NotFound_Returns404(t *testing.T) {
 func TestShortlistApplication_NoAuth_Returns401(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -721,7 +715,7 @@ func TestShortlistApplication_InvalidTransition_Returns400(t *testing.T) {
 	require.NoError(t, app.Reject(uuid.New(), "not a fit"))
 	_ = app.PullEvents()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -756,7 +750,7 @@ func TestRejectApplication_HappyPath_Returns204(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 	app := buildScoredApp(t, appRepo, tenant)
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -775,7 +769,7 @@ func TestRejectApplication_MissingReason_Returns400(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 	app := buildScoredApp(t, appRepo, tenant)
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -792,7 +786,7 @@ func TestRejectApplication_MissingReason_Returns400(t *testing.T) {
 func TestRejectApplication_InvalidBody_Returns400(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -809,7 +803,7 @@ func TestRejectApplication_InvalidBody_Returns400(t *testing.T) {
 func TestRejectApplication_NotFound_Returns404(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -826,7 +820,7 @@ func TestRejectApplication_NotFound_Returns404(t *testing.T) {
 func TestRejectApplication_NoAuth_Returns401(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -845,7 +839,7 @@ func TestHireApplication_HappyPath_Returns204(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 	app := buildScoredApp(t, appRepo, tenant)
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -860,7 +854,7 @@ func TestHireApplication_HappyPath_Returns204(t *testing.T) {
 func TestHireApplication_NotFound_Returns404(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -886,7 +880,7 @@ func TestHireApplication_InvalidTransition_Returns400(t *testing.T) {
 	require.NoError(t, err)
 	appRepo.byID[app.ID()] = app
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 
@@ -901,7 +895,7 @@ func TestHireApplication_InvalidTransition_Returns400(t *testing.T) {
 func TestHireApplication_NoAuth_Returns401(t *testing.T) {
 	appRepo := newTransitionAppRepo()
 
-	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	h := buildTransitionSourcingHandler(t, appRepo, auditinfra.NewNoopAuditWriter())
 	router := chi.NewRouter()
 	v1.Mount(router, h)
 

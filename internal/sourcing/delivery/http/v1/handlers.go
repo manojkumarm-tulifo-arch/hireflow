@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +40,7 @@ func NewSourcingHandler(
 	status *queries.GetBatchStatusHandler,
 	candidate *queries.GetCandidateHandler,
 	listApplications *queries.ListApplicationsHandler,
+	transition *commands.TransitionApplicationHandler,
 	logger zerolog.Logger,
 ) *SourcingHandler {
 	return &SourcingHandler{
@@ -46,15 +48,9 @@ func NewSourcingHandler(
 		status:           status,
 		candidate:        candidate,
 		listApplications: listApplications,
+		transition:       transition,
 		logger:           logger,
 	}
-}
-
-// SetTransitionHandler wires the optional TransitionApplicationHandler.
-// Called by tests and main.go after construction (avoids changing the
-// constructor signature until T13 wires the full dep graph).
-func (h *SourcingHandler) SetTransitionHandler(t *commands.TransitionApplicationHandler) {
-	h.transition = t
 }
 
 // BatchUpload handles POST /intents/{intent_id}/resumes:batch.
@@ -334,7 +330,7 @@ func (h *SourcingHandler) RejectApplication(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
 		return
 	}
-	if body.Reason == "" {
+	if strings.TrimSpace(body.Reason) == "" {
 		writeError(w, http.StatusBadRequest, "reason_required", "reason is required")
 		return
 	}
@@ -361,10 +357,6 @@ func (h *SourcingHandler) transitionApplication(
 	applicationID, err := uuid.Parse(chi.URLParam(r, "application_id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_application_id", "application_id must be a uuid")
-		return
-	}
-	if h.transition == nil {
-		writeError(w, http.StatusServiceUnavailable, "not_wired", "transition handler not configured")
 		return
 	}
 
