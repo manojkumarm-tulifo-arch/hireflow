@@ -43,6 +43,9 @@ func (r *stubListApplicationRepo) ClaimNextNew(_ context.Context) (*entities.App
 func (r *stubListApplicationRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
 	return nil, nil
 }
+func (r *stubListApplicationRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
 
 // stubListCandidateRepo supports FindByID with a preset map.
 type stubListCandidateRepo struct {
@@ -497,5 +500,8 @@ func (r *filterCapturingAppRepo) ClaimNextNew(_ context.Context) (*entities.Appl
 }
 func (r *filterCapturingAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
 	return nil, nil
+}
+func (r *filterCapturingAppRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
 }
 

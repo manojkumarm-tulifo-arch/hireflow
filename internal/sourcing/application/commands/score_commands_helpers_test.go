@@ -232,6 +232,10 @@ func (r *fakeApplicationRepo) TopByCoarseScoreForIntent(_ context.Context, _ sha
 	return append([]*entities.Application(nil), r.topK...), nil
 }
 
+func (r *fakeApplicationRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
+
 func (r *fakeApplicationRepo) savedCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

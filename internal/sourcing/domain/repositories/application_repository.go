@@ -60,4 +60,11 @@ type ApplicationRepository interface {
 	// ScoreIntent to select the top-K candidates for LLM judging.
 	TopByCoarseScoreForIntent(ctx context.Context, tenant shared.TenantID,
 		intentID uuid.UUID, limit int) ([]*entities.Application, error)
+
+	// InvalidateJudgmentsForIntent nulls out llm_judgment, overall_score, and
+	// score_band for all applications belonging to the intent. Used by rescore
+	// to clear cached LLM judgments so the judge worker re-runs them.
+	// Only those three fields are touched; status, embedding_score, rule_match,
+	// and all other columns are left unchanged.
+	InvalidateJudgmentsForIntent(ctx context.Context, tenant shared.TenantID, intentID uuid.UUID) error
 }

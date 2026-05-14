@@ -81,6 +81,10 @@ func (r *appRepoStub) TopByCoarseScoreForIntent(_ context.Context, _ shared.Tena
 	return nil, nil
 }
 
+func (r *appRepoStub) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
+
 func (r *appRepoStub) savedCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

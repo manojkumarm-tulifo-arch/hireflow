@@ -203,7 +203,7 @@ func TestSourcingSlice3_E2E(t *testing.T) {
 	)
 
 	listAppH := sourcingqueries.NewListApplicationsHandler(appRepo, candRepo, piiEnc)
-	sourcingH := v1.NewSourcingHandler(uploadH, statusH, nil, listAppH, nil, nil, logger)
+	sourcingH := v1.NewSourcingHandler(uploadH, statusH, nil, listAppH, nil, nil, nil, logger)
 
 	router := chi.NewRouter()
 	v1.Mount(router, sourcingH)

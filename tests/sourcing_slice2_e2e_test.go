@@ -95,7 +95,7 @@ func TestSourcingSlice2_E2E(t *testing.T) {
 	})
 	statusH := queries.NewGetBatchStatusHandler(uploadRepo)
 	candH := queries.NewGetCandidateHandler(candRepo, piiEnc)
-	handler := v1.NewSourcingHandler(uploadH, statusH, candH, nil, nil, nil, logger)
+	handler := v1.NewSourcingHandler(uploadH, statusH, candH, nil, nil, nil, nil, logger)
 
 	router := chi.NewRouter()
 	v1.Mount(router, handler)

@@ -43,6 +43,9 @@ func (r *oneShotAppRepo) ClaimNextNew(_ context.Context) (*entities.Application,
 func (r *oneShotAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
 	return nil, nil
 }
+func (r *oneShotAppRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
 
 // newMatchPoolApplication builds a minimal Application in status New for pool tests.
 func newMatchPoolApplication(t *testing.T) *entities.Application {

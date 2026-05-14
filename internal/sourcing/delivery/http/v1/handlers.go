@@ -32,6 +32,7 @@ type SourcingHandler struct {
 	listApplications *queries.ListApplicationsHandler
 	transition       *commands.TransitionApplicationHandler
 	retryUpload      *commands.RetryResumeUploadHandler
+	rescoreIntent    *commands.RescoreIntentHandler
 	logger           zerolog.Logger
 }
 
@@ -43,6 +44,7 @@ func NewSourcingHandler(
 	listApplications *queries.ListApplicationsHandler,
 	transition *commands.TransitionApplicationHandler,
 	retryUpload *commands.RetryResumeUploadHandler,
+	rescoreIntent *commands.RescoreIntentHandler,
 	logger zerolog.Logger,
 ) *SourcingHandler {
 	return &SourcingHandler{
@@ -52,6 +54,7 @@ func NewSourcingHandler(
 		listApplications: listApplications,
 		transition:       transition,
 		retryUpload:      retryUpload,
+		rescoreIntent:    rescoreIntent,
 		logger:           logger,
 	}
 }
@@ -418,6 +421,39 @@ func (h *SourcingHandler) RetryUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// RescoreIntent handles POST /intents/{intent_id}/applications:rescore.
+// It invalidates cached LLM judgments for the intent and re-dispatches
+// ScoreIntent so the judge worker re-scores the top-K applications.
+// Returns 202 Accepted because the actual scoring work happens asynchronously.
+func (h *SourcingHandler) RescoreIntent(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	intentID, err := uuid.Parse(chi.URLParam(r, "intent_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_intent_id", "intent_id must be a uuid")
+		return
+	}
+	if h.rescoreIntent == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "rescore handler not configured")
+		return
+	}
+
+	handleErr := h.rescoreIntent.Handle(r.Context(), commands.RescoreIntentInput{
+		TenantID:    identity.TenantID,
+		ActorUserID: identity.RecruiterID.UUID(),
+		IntentID:    intentID,
+	})
+	if handleErr != nil {
+		h.logger.Error().Err(handleErr).Msg("rescore intent failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // multipartSource adapts multipart.Reader to dto.BatchItemSource.
