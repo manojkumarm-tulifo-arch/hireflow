@@ -5,6 +5,8 @@ package tests
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -420,7 +422,10 @@ rescoreJudged:
 			'Failed', 1, '{"reason":"e2e_force_fail","detail":"injected by e2e test"}',
 			now(), now()
 		)
-	`, failedUploadID, tenant.String(), intentID, batchID, "hash-"+failedUploadID.String())
+	`, failedUploadID, tenant.String(), intentID, batchID, func() string {
+		sum := sha256.Sum256([]byte("failed-upload:" + failedUploadID.String()))
+		return hex.EncodeToString(sum[:])
+	}())
 	require.NoError(t, err, "failed to insert fabricated Failed upload")
 
 	// POST :retry

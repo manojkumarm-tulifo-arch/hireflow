@@ -37,30 +37,40 @@ func TestEraseCascade_DeletesAllRelatedRows(t *testing.T) {
 	`, candidateID, tenant.String(), uuidHex(t), time.Now())
 	require.NoError(t, err)
 
-	// --- seed intent (required for FK on applications if present) ---
-	intentID := uuid.New()
-	_, err = pool.Exec(ctx, `
-		INSERT INTO hiring_intents (id, tenant_id, status, title, created_at, updated_at)
-		VALUES ($1, $2, 'Confirmed', 'SWE', $3, $3)
-	`, intentID, tenant.String(), time.Now())
-	require.NoError(t, err)
+	// --- seed 2 intents (each application needs a distinct intent to satisfy the unique
+	//     constraint on (tenant_id, candidate_id, intent_id)) ---
+	intentID1 := uuid.New()
+	intentID2 := uuid.New()
+	for _, iid := range []uuid.UUID{intentID1, intentID2} {
+		_, err = pool.Exec(ctx, `
+			INSERT INTO hiring_intents (id, tenant_id, recruiter_id, role, priority, status, created_at, updated_at)
+			VALUES ($1, $2, $3, '{"title":"SWE"}'::jsonb, 'MEDIUM', 'CONFIRMED', $4, $4)
+		`, iid, tenant.String(), uuid.New(), time.Now())
+		require.NoError(t, err)
+	}
+	// Keep a single intentID alias for the resume_uploads FK below.
+	intentID := intentID1
 
-	// --- seed 2 applications ---
+	// --- seed 2 applications (one per intent) ---
 	appID1, appID2 := uuid.New(), uuid.New()
-	for _, appID := range []uuid.UUID{appID1, appID2} {
+	for i, appID := range []uuid.UUID{appID1, appID2} {
+		iid := intentID1
+		if i == 1 {
+			iid = intentID2
+		}
 		_, err = pool.Exec(ctx, `
 			INSERT INTO applications (id, tenant_id, candidate_id, intent_id,
-				status, intent_spec_version, profile_schema_version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, 'New', 1, 1, $5, $5)
-		`, appID, tenant.String(), candidateID, intentID, time.Now())
+				status, intent_spec_version, profile_schema_version, rule_match, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'New', 1, 1, '{}', $5, $5)
+		`, appID, tenant.String(), candidateID, iid, time.Now())
 		require.NoError(t, err)
 	}
 
 	// --- seed 1 judge_job linked to appID1 ---
 	_, err = pool.Exec(ctx, `
-		INSERT INTO judge_jobs (id, tenant_id, application_id, status, attempt_count, created_at, updated_at)
-		VALUES ($1, $2, $3, 'Pending', 0, $4, $4)
-	`, uuid.New(), tenant.String(), appID1, time.Now())
+		INSERT INTO judge_jobs (id, tenant_id, application_id, intent_id, coarse_score, status, attempt_count, enqueued_at)
+		VALUES ($1, $2, $3, $4, 0.0, 'Pending', 0, $5)
+	`, uuid.New(), tenant.String(), appID1, intentID1, time.Now())
 	require.NoError(t, err)
 
 	// --- seed 2 resume_uploads ---
@@ -168,16 +178,16 @@ func TestEraseCascade_BystanderRowsUntouched(t *testing.T) {
 	// Seed intent + application + upload for the bystander.
 	bystanderIntentID := uuid.New()
 	_, err = pool.Exec(ctx, `
-		INSERT INTO hiring_intents (id, tenant_id, status, title, created_at, updated_at)
-		VALUES ($1, $2, 'Confirmed', 'DevOps', $3, $3)
-	`, bystanderIntentID, otherTenant.String(), time.Now())
+		INSERT INTO hiring_intents (id, tenant_id, recruiter_id, role, priority, status, created_at, updated_at)
+		VALUES ($1, $2, $3, '{"title":"DevOps"}'::jsonb, 'MEDIUM', 'CONFIRMED', $4, $4)
+	`, bystanderIntentID, otherTenant.String(), uuid.New(), time.Now())
 	require.NoError(t, err)
 
 	bystanderAppID := uuid.New()
 	_, err = pool.Exec(ctx, `
 		INSERT INTO applications (id, tenant_id, candidate_id, intent_id,
-			status, intent_spec_version, profile_schema_version, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'New', 1, 1, $5, $5)
+			status, intent_spec_version, profile_schema_version, rule_match, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'New', 1, 1, '{}', $5, $5)
 	`, bystanderAppID, otherTenant.String(), bystanderID, bystanderIntentID, time.Now())
 	require.NoError(t, err)
 
