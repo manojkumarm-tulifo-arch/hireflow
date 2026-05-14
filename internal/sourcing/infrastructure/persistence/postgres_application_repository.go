@@ -201,8 +201,14 @@ func (r *PostgresApplicationRepository) ClaimNextNew(ctx context.Context) (*enti
 }
 
 // TopByCoarseScoreForIntent returns up to limit Applications for the given
-// intent that have a non-nil embedding_score, ordered by coarse score
+// intent that have a non-nil embedding_score AND are not in a terminal
+// recruiter-decision state (Rejected, Hired), ordered by coarse score
 // (= required_pass_rate*100 + embedding_score*20) descending.
+//
+// Terminal states are skipped because the LLM judge should not be re-enqueued
+// for candidates the recruiter has already finalized. This applies to both
+// initial scoring (where terminal-state apps shouldn't exist anyway) and to
+// rescore (where pre-existing Rejected/Hired apps would otherwise be re-judged).
 //
 // required_pass_rate is stored as a top-level field in the rule_match JSONB
 // by RuleMatchReport.Marshal(), enabling this SQL ordering without decoding
@@ -211,6 +217,7 @@ func (r *PostgresApplicationRepository) TopByCoarseScoreForIntent(ctx context.Co
 	q := applicationSelectSQL + `
 		WHERE tenant_id=$1 AND intent_id=$2
 		  AND embedding_score IS NOT NULL
+		  AND status NOT IN ('Rejected', 'Hired')
 		ORDER BY (
 		    (rule_match->>'required_pass_rate')::numeric * 100
 		    + COALESCE(embedding_score, 0) * 20
@@ -236,8 +243,12 @@ func (r *PostgresApplicationRepository) TopByCoarseScoreForIntent(ctx context.Co
 
 // InvalidateJudgmentsForIntent nulls out llm_judgment, overall_score, and
 // score_band for all applications that belong to the given (tenant, intent)
-// pair. The UPDATE is idempotent and parameterized — it is safe to call
-// multiple times.
+// pair, EXCEPT those in terminal recruiter-decision states (Rejected, Hired).
+// The UPDATE is idempotent and parameterized — it is safe to call multiple times.
+//
+// Terminal states are skipped because the recruiter has already made a final
+// decision on those candidates; re-running the LLM judge over them would be
+// wasted work and would surface re-scored Rejected/Hired cards in the UI.
 //
 // NOTE: status, embedding_score, rule_match, and all other columns are NOT
 // touched. After invalidation the judge worker re-populates the three nulled
@@ -251,7 +262,8 @@ func (r *PostgresApplicationRepository) InvalidateJudgmentsForIntent(ctx context
 		       score_band    = NULL,
 		       updated_at    = now()
 		 WHERE tenant_id = $1
-		   AND intent_id = $2`,
+		   AND intent_id = $2
+		   AND status NOT IN ('Rejected', 'Hired')`,
 		tenant.String(), intentID,
 	)
 	if err != nil {
