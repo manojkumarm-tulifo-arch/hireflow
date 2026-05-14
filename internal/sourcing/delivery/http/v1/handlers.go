@@ -467,11 +467,6 @@ func (h *SourcingHandler) EraseCandidate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid_candidate_id", "candidate_id must be a uuid")
 		return
 	}
-	if h.eraseCandidate == nil {
-		writeError(w, http.StatusServiceUnavailable, "not_wired", "erase candidate handler not configured")
-		return
-	}
-
 	handleErr := h.eraseCandidate.Handle(r.Context(), commands.EraseCandidateInput{
 		TenantID:    identity.TenantID,
 		ActorUserID: identity.RecruiterID.UUID(),
