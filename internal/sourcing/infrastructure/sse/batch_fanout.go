@@ -92,22 +92,28 @@ func (f *BatchEventFanout) OnEvent(_ context.Context, event any) error {
 		return nil
 	}
 
+	// Send under the lock so cleanup cannot close the channel mid-send (which
+	// would panic). The lock is also serialized with Subscribe/cleanup so the
+	// critical section iterates a stable subscriber list. Logging is hoisted
+	// out of the critical section — a synchronous logger write should not
+	// block other subscribers' streams, even briefly.
+	var drops int
 	f.mu.Lock()
-	list := f.subs[batchID]
-	// Copy slice under the lock so we can send outside the lock after the copy.
-	// Since sends are non-blocking (select + default) we can also send while
-	// holding the lock without risk of deadlock; we choose to hold the lock for
-	// simplicity since the critical section is tiny.
-	for _, sub := range list {
+	for _, sub := range f.subs[batchID] {
 		select {
 		case sub.C <- line:
 		default:
-			f.logger.Warn().
-				Str("batch_id", batchID.String()).
-				Msg("sse subscriber channel full; dropping event")
+			drops++
 		}
 	}
 	f.mu.Unlock()
+
+	if drops > 0 {
+		f.logger.Warn().
+			Str("batch_id", batchID.String()).
+			Int("dropped", drops).
+			Msg("sse subscriber channel full; dropping event")
+	}
 
 	return nil
 }
