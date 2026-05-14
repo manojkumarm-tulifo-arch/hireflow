@@ -106,7 +106,7 @@ CREATE TABLE interview_rounds (
     process_id       UUID         NOT NULL,
     kind             TEXT         NOT NULL,   -- screen | technical | system_design | behavioral | bar_raiser
     sequence         INT          NOT NULL,
-    status           TEXT         NOT NULL,   -- Pending | QuestionsReady | InProgress | Completed | Skipped | GenerationFailed
+    status           TEXT         NOT NULL,   -- Pending | QuestionsReady | Completed | Skipped | GenerationFailed
     questions        JSONB,                   -- NULL until generation succeeds
     attempt_count    INT          NOT NULL DEFAULT 0,
     last_error       TEXT         NOT NULL DEFAULT '',
@@ -116,7 +116,7 @@ CREATE TABLE interview_rounds (
     CONSTRAINT interview_rounds_kind_valid
         CHECK (kind IN ('screen','technical','system_design','behavioral','bar_raiser')),
     CONSTRAINT interview_rounds_status_valid
-        CHECK (status IN ('Pending','QuestionsReady','InProgress','Completed','Skipped','GenerationFailed')),
+        CHECK (status IN ('Pending','QuestionsReady','Completed','Skipped','GenerationFailed')),
     CONSTRAINT interview_rounds_sequence_positive CHECK (sequence > 0),
     UNIQUE (tenant_id, process_id, sequence)
 );
@@ -239,7 +239,7 @@ type InterviewProcess struct {
 
 - A process must have at least one round.
 - Rounds' `sequence` field is contiguous, 1-indexed.
-- A process cannot be `Completed` while any round is in `Pending`, `QuestionsReady`, `InProgress`, or `GenerationFailed` status.
+- A process cannot be `Completed` while any round is in `Pending`, `QuestionsReady`, or `GenerationFailed`. The recruiter's escape hatch for a stuck round is to mark it `Skipped` — completed processes may contain `Completed` or `Skipped` rounds (any mix).
 - A process cannot transition out of a terminal state (`Completed`, `Cancelled`).
 - `Cancel` is always allowed from non-terminal states.
 
@@ -261,15 +261,16 @@ type InterviewRound struct {
 **State machine:**
 
 ```
-Pending ──generate ok────► QuestionsReady ──interview started─► InProgress ──done─► Completed
-   │                            │                                  │
-   │                            └─────────recruiter regenerates────┤
-   └──N attempts failed─► GenerationFailed ◄────────────────────────┘
-                                │
-                                └──recruiter regenerates──► Pending
+Pending ──generate ok────► QuestionsReady ──recruiter marks done─► Completed
+   │                            │
+   │                            └──recruiter regenerates──► Pending
+   │
+   └──N attempts failed─► GenerationFailed ──recruiter regenerates──► Pending
 ```
 
-Plus: any non-terminal round can be `Skipped` (recruiter decision).
+Plus: any non-terminal round can be `Skipped` (recruiter decision). `Skipped` is terminal alongside `Completed`. `Skipped` exists specifically as the escape hatch when generation cannot succeed (e.g., the candidate was GDPR-erased mid-process) — without it the process would be permanently uncompletable.
+
+Slice 1 deliberately does **not** include an `InProgress` state. The transition `QuestionsReady → Completed` is one atomic action when the recruiter finishes conducting the round; intermediate progress is captured by the count of feedback rows on the round.
 
 ### `LoopTemplate`
 
@@ -319,8 +320,8 @@ type CandidateReader interface {
 
 Adapters:
 
-- **`PostgresIntentReader`** (in `internal/interview/infrastructure/clients/`) — reads `hiring_intents.role` JSONB directly. Tenant-scoped. Wraps the existing slice-3 `sourcing.PostgresIntentReader` pattern.
-- **`SourcingCandidateReader`** — reads `candidates.parsed_profile` JSONB. Skips the encrypted PII columns. Tenant-scoped.
+- **`PostgresIntentReader`** (in `internal/interview/infrastructure/clients/`) — reads `hiring_intents.role` JSONB directly via its own pool reference. Tenant-scoped. Mirrors the slice-3 `sourcing.PostgresIntentReader` pattern but is an independent implementation — the interview context does not import sourcing code.
+- **`PostgresCandidateReader`** — reads `candidates.parsed_profile` JSONB directly. Skips the encrypted PII columns. Tenant-scoped. Same isolation rule as above.
 
 `CandidateProfile` is an interview-context-local DTO. The `parsed_profile` JSONB is unmarshalled into it directly; if the schema_version is one the interview context doesn't recognize, the reader returns a typed error and the round goes to `GenerationFailed`.
 
@@ -388,9 +389,10 @@ After the backoff schedule is exhausted: round → `GenerationFailed`. Recruiter
 |---|---|---|
 | `StartInterviewProcess` | `ApplicationShortlistedConsumer` | Loads loop template (or default), creates process + N rounds in `Pending`, saves, emits `InterviewProcessCreated`. Idempotent on `(tenant_id, application_id)`. |
 | `GenerateRoundQuestions` | `QuestionGenerationPool` | Generates questions for one round; see retry table. |
-| `RegenerateRoundQuestions` | `POST /interview/rounds/{id}:regenerate` | Resets `attempt_count`, sets steering text, transitions any `GenerationFailed` or `QuestionsReady` round back to `Pending`. |
+| `RegenerateRoundQuestions` | `POST /interview/rounds/{id}:regenerate` | Resets `attempt_count`, sets steering text, transitions a round from `QuestionsReady` or `GenerationFailed` back to `Pending` (the worker re-picks it up). Rejects if the round is `Completed` or `Skipped` (409). |
 | `RecordFeedback` | `POST /interview/rounds/{id}/feedback` | Appends a feedback row, writes audit log, emits `InterviewFeedbackRecorded`. Audit-write failure propagates as 500 (same load-bearing semantics as slice 4). |
-| `MarkRoundCompleted` | `POST /interview/rounds/{id}:mark-done` | Transitions round to `Completed` (only from `QuestionsReady` or `InProgress`). |
+| `MarkRoundCompleted` | `POST /interview/rounds/{id}:mark-done` | Transitions round from `QuestionsReady` to `Completed`. Rejects from any other source state (409). |
+| `MarkRoundSkipped` | `POST /interview/rounds/{id}:skip` | Transitions round from `Pending`, `QuestionsReady`, or `GenerationFailed` to `Skipped`. Recruiter's escape hatch for a stuck round. |
 | `CompleteProcess` | `POST /interview/processes/{id}:complete` | Asserts all rounds are terminal; transitions process to `Completed`. |
 | `CancelProcess` | `POST /interview/processes/{id}:cancel` | Transitions process to `Cancelled` from any non-terminal state. |
 | `UpsertLoopTemplate` | `PUT /intents/{intent_id}/loop-template` | Creates or replaces the template. Does not retroactively mutate existing processes. |
@@ -413,9 +415,12 @@ GET    /interview/processes/{process_id}           GetInterviewProcess          
 POST   /interview/processes/{process_id}:complete  CompleteProcess               204 / 409
 POST   /interview/processes/{process_id}:cancel    CancelProcess                 204 / 409
 POST   /interview/rounds/{round_id}/feedback       RecordFeedback                201
-POST   /interview/rounds/{round_id}:regenerate     RegenerateRoundQuestions      202
+POST   /interview/rounds/{round_id}:regenerate     RegenerateRoundQuestions      202 / 409
 POST   /interview/rounds/{round_id}:mark-done      MarkRoundCompleted            204 / 409
+POST   /interview/rounds/{round_id}:skip           MarkRoundSkipped              204 / 409
 ```
+
+**Generation completion signal.** Question generation is asynchronous; there is no SSE channel in slice 1 (the existing SSE infrastructure in sourcing is batch-scoped, not interview-scoped). Recruiter dashboards poll `GET /interview/processes/{id}` to discover when rounds have transitioned from `Pending` → `QuestionsReady`. A typical poll interval of 2-3 seconds is acceptable given expected generation latency of 5-15 seconds. A dedicated SSE channel for interview events is a future-slice consideration.
 
 Status codes follow slice-4 conventions: `401` on missing identity, `400` on malformed UUIDs / bodies, `404` on missing tenant-scoped row, `409` on invalid state transitions, `500` on audit-write failure or unhandled errors.
 
@@ -438,7 +443,7 @@ Audit failure on write returns 500 to the caller, after the underlying state cha
 Adds the following blocks:
 
 1. **Repositories** — `NewPostgresProcessRepository(pool)`, `NewPostgresLoopTemplateRepository(pool)`, `NewPostgresFeedbackRepository(pool)`.
-2. **Cross-context readers** — `NewPostgresIntentReader(pool)` (interview-context version), `NewSourcingCandidateReader(candidateRepo, piiEncryptor)`. The candidate reader is constructed with a reference to the sourcing `CandidateRepository`; this is the only place where wiring crosses contexts. Internally, both ports stay isolated.
+2. **Cross-context readers** — `NewPostgresIntentReader(pool)` and `NewPostgresCandidateReader(pool)` (interview-context implementations, both taking only the pool). They read from `hiring_intents` and `candidates` directly. No PII decryption (questions don't need name/email/phone). The contexts share only the database; no Go-level cross-import.
 3. **Generator** — `NewAnthropicQuestionGenerator(anthropicClient, cfg)` with per-kind prompt templates loaded from `internal/interview/infrastructure/generation/prompts/`.
 4. **Audit writer** — the existing `auditWriter` from slice 4.
 5. **Command handlers** — one per command.
