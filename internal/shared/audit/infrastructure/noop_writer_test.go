@@ -41,4 +41,3 @@ func TestNoopAuditWriter_WriteReturnsNil_EmptyPayload(t *testing.T) {
 	err := w.Write(context.Background(), e)
 	require.NoError(t, err)
 }
-

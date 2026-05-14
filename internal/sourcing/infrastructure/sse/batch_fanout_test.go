@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
+	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	"github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 )
 

@@ -64,18 +64,18 @@ func (r *retryUploadRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uu
 func buildUploadInStatus(t *testing.T, repo *retryUploadRepo, tenant shared.TenantID, status vo.UploadStatus) *entities.ResumeUpload {
 	t.Helper()
 	u := entities.RehydrateResumeUpload(entities.RehydrateInput{
-		ID:           uuid.New(),
-		TenantID:     tenant,
-		IntentID:     uuid.New(),
-		BatchID:      uuid.New(),
-		StorageKey:   "key/file.pdf",
-		OriginalName: "resume.pdf",
-		Status:       status,
-		AttemptCount: 2,
-		LastError:    "previous error",
+		ID:            uuid.New(),
+		TenantID:      tenant,
+		IntentID:      uuid.New(),
+		BatchID:       uuid.New(),
+		StorageKey:    "key/file.pdf",
+		OriginalName:  "resume.pdf",
+		Status:        status,
+		AttemptCount:  2,
+		LastError:     "previous error",
 		NextAttemptAt: time.Now().Add(-1 * time.Hour),
-		CreatedAt:    time.Now().Add(-2 * time.Hour),
-		UpdatedAt:    time.Now().Add(-1 * time.Hour),
+		CreatedAt:     time.Now().Add(-2 * time.Hour),
+		UpdatedAt:     time.Now().Add(-1 * time.Hour),
 	})
 	repo.byID[u.ID()] = u
 	return u

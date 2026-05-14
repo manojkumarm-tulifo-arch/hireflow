@@ -96,25 +96,25 @@ func NewApplication(in NewApplicationInput) (*Application, error) {
 }
 
 // Accessors.
-func (a *Application) ID() uuid.UUID                    { return a.id }
-func (a *Application) TenantID() shared.TenantID        { return a.tenantID }
-func (a *Application) CandidateID() uuid.UUID           { return a.candidateID }
-func (a *Application) IntentID() uuid.UUID              { return a.intentID }
-func (a *Application) IntentSpecVersion() int           { return a.intentSpecVersion }
-func (a *Application) ProfileSchemaVersion() int        { return a.profileSchemaVersion }
-func (a *Application) Status() vo.ApplicationStatus     { return a.status }
-func (a *Application) OverallScore() *float64           { return a.overallScore }
-func (a *Application) ScoreBand() *vo.ScoreBand         { return a.scoreBand }
-func (a *Application) RuleMatch() vo.RuleMatchReport    { return a.ruleMatch }
-func (a *Application) RuleMatchRecorded() bool          { return a.ruleMatchRecorded }
-func (a *Application) EmbeddingScore() *float64         { return a.embeddingScore }
-func (a *Application) LLMJudgment() *vo.LLMJudgment     { return a.llmJudgment }
-func (a *Application) LastError() string                { return a.lastError }
-func (a *Application) AttemptCount() int                { return a.attemptCount }
-func (a *Application) NextAttemptAt() time.Time         { return a.nextAttemptAt }
-func (a *Application) ScoredAt() *time.Time             { return a.scoredAt }
-func (a *Application) CreatedAt() time.Time             { return a.createdAt }
-func (a *Application) UpdatedAt() time.Time             { return a.updatedAt }
+func (a *Application) ID() uuid.UUID                 { return a.id }
+func (a *Application) TenantID() shared.TenantID     { return a.tenantID }
+func (a *Application) CandidateID() uuid.UUID        { return a.candidateID }
+func (a *Application) IntentID() uuid.UUID           { return a.intentID }
+func (a *Application) IntentSpecVersion() int        { return a.intentSpecVersion }
+func (a *Application) ProfileSchemaVersion() int     { return a.profileSchemaVersion }
+func (a *Application) Status() vo.ApplicationStatus  { return a.status }
+func (a *Application) OverallScore() *float64        { return a.overallScore }
+func (a *Application) ScoreBand() *vo.ScoreBand      { return a.scoreBand }
+func (a *Application) RuleMatch() vo.RuleMatchReport { return a.ruleMatch }
+func (a *Application) RuleMatchRecorded() bool       { return a.ruleMatchRecorded }
+func (a *Application) EmbeddingScore() *float64      { return a.embeddingScore }
+func (a *Application) LLMJudgment() *vo.LLMJudgment  { return a.llmJudgment }
+func (a *Application) LastError() string             { return a.lastError }
+func (a *Application) AttemptCount() int             { return a.attemptCount }
+func (a *Application) NextAttemptAt() time.Time      { return a.nextAttemptAt }
+func (a *Application) ScoredAt() *time.Time          { return a.scoredAt }
+func (a *Application) CreatedAt() time.Time          { return a.createdAt }
+func (a *Application) UpdatedAt() time.Time          { return a.updatedAt }
 
 // PullEvents returns and drains the aggregate's pending events.
 func (a *Application) PullEvents() []events.Event {

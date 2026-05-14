@@ -42,6 +42,7 @@ import (
 	postingmsg "github.com/hustle/hireflow/internal/jobposting/infrastructure/messaging"
 	postingpersist "github.com/hustle/hireflow/internal/jobposting/infrastructure/persistence"
 	postingsubs "github.com/hustle/hireflow/internal/jobposting/infrastructure/subscribers"
+	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/eventbus"
 	sharedanthropic "github.com/hustle/hireflow/internal/shared/infrastructure/llm/anthropic"
@@ -49,10 +50,9 @@ import (
 	sourcingqueries "github.com/hustle/hireflow/internal/sourcing/application/queries"
 	sourcinghttp "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	sourcingsvc "github.com/hustle/hireflow/internal/sourcing/domain/services"
-	sourcingsse "github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 	sourcingclients "github.com/hustle/hireflow/internal/sourcing/infrastructure/clients"
-	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingembed "github.com/hustle/hireflow/internal/sourcing/infrastructure/embedding"
+	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingjudging "github.com/hustle/hireflow/internal/sourcing/infrastructure/judging"
 	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
 	sourcingocr "github.com/hustle/hireflow/internal/sourcing/infrastructure/ocr"
@@ -60,11 +60,11 @@ import (
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
 	sourcingscoring "github.com/hustle/hireflow/internal/sourcing/infrastructure/scoring"
+	sourcingsse "github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
 	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
-	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 )
 
 func main() {

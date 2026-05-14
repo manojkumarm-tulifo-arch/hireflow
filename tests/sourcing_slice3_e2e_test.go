@@ -33,8 +33,8 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 	sourcingclients "github.com/hustle/hireflow/internal/sourcing/infrastructure/clients"
-	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingembed "github.com/hustle/hireflow/internal/sourcing/infrastructure/embedding"
+	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
@@ -132,6 +132,7 @@ func insertHiringIntentForSlice3(t *testing.T, pool *pgxpool.Pool, intentID, ten
 //  8. Judge worker picks up JudgeJob, calls the stub judge (score=87), records
 //     the LLM judgment on the Application.
 //  9. GET /api/v1/intents/{id}/applications returns the ranked list.
+//
 // 10. Assertions: overall_score=87, status=Scored, masked name, rule_match populated.
 func TestSourcingSlice3_E2E(t *testing.T) {
 	pool := newPgvectorPool(t) // skips if DATABASE_URL not set
@@ -173,8 +174,8 @@ func TestSourcingSlice3_E2E(t *testing.T) {
 		Storage:       store,
 		Scanner:       sourcingscan.NewNoop(),
 		Extractor:     sourcingtext.NewSimple(),
-		Parser:        stubParser{},  // reused from sourcing_slice2_e2e_test.go
-		OCR:           stubOCR{},     // reused from sourcing_slice2_e2e_test.go
+		Parser:        stubParser{}, // reused from sourcing_slice2_e2e_test.go
+		OCR:           stubOCR{},    // reused from sourcing_slice2_e2e_test.go
 		Encryptor:     piiEnc,
 		CandidateRepo: candRepo,
 		OCRThreshold:  5,

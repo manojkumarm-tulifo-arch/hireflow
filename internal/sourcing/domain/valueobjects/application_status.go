@@ -9,12 +9,12 @@ import "errors"
 type ApplicationStatus string
 
 const (
-	AppStatusNew       ApplicationStatus = "New"
-	AppStatusScored    ApplicationStatus = "Scored"
-	AppStatusExcluded  ApplicationStatus = "Excluded"
+	AppStatusNew         ApplicationStatus = "New"
+	AppStatusScored      ApplicationStatus = "Scored"
+	AppStatusExcluded    ApplicationStatus = "Excluded"
 	AppStatusEmbedFailed ApplicationStatus = "EmbedFailed"
 	AppStatusJudgeFailed ApplicationStatus = "JudgeFailed"
-	AppStatusStale     ApplicationStatus = "Stale"
+	AppStatusStale       ApplicationStatus = "Stale"
 
 	// Slice-4 statuses — declared for forward-compat; not used in slice 3.
 	AppStatusShortlisted  ApplicationStatus = "Shortlisted"

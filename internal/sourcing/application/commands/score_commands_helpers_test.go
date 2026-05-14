@@ -27,11 +27,11 @@ var errIntentNotFound = errors.New("intent not found")
 // ---------------------------------------------------------------------------
 
 type fakeIntentReader struct {
-	mu         sync.Mutex
-	byID       map[uuid.UUID]services.IntentSnapshot
-	confirmed  []services.IntentSnapshot
-	findErr    error
-	listErr    error
+	mu        sync.Mutex
+	byID      map[uuid.UUID]services.IntentSnapshot
+	confirmed []services.IntentSnapshot
+	findErr   error
+	listErr   error
 }
 
 func newFakeIntentReader() *fakeIntentReader {
@@ -406,7 +406,10 @@ func (r *fakeExtendedCandidateRepo) EraseCascade(_ context.Context, _ shared.Ten
 // ---------------------------------------------------------------------------
 
 // makeCandidate builds a minimal valid Candidate for use in scoring tests.
-func makeCandidate(t interface{ Helper(); Fatal(...interface{}) }, tenantID shared.TenantID) *entities.Candidate {
+func makeCandidate(t interface {
+	Helper()
+	Fatal(...interface{})
+}, tenantID shared.TenantID) *entities.Candidate {
 	t.Helper()
 	hash, err := vo.NewContentHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	if err != nil {
@@ -433,7 +436,10 @@ func makeCandidate(t interface{ Helper(); Fatal(...interface{}) }, tenantID shar
 
 // makeCandidateWithEmbedding builds a Candidate that already has a profile embedding
 // so that ScoreApplicationHandler skips the embedder call for the candidate.
-func makeCandidateWithEmbedding(t interface{ Helper(); Fatal(...interface{}) }, tenantID shared.TenantID) *entities.Candidate {
+func makeCandidateWithEmbedding(t interface {
+	Helper()
+	Fatal(...interface{})
+}, tenantID shared.TenantID) *entities.Candidate {
 	t.Helper()
 	hash, err := vo.NewContentHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	if err != nil {
@@ -445,16 +451,16 @@ func makeCandidateWithEmbedding(t interface{ Helper(); Fatal(...interface{}) }, 
 	vec := make([]float32, 1024)
 	vec[0] = 1.0
 	cand := entities.RehydrateCandidate(entities.RehydrateCandidateInput{
-		ID:               uuid.New(),
-		TenantID:         tenantID,
-		ContentHash:      hash,
+		ID:                uuid.New(),
+		TenantID:          tenantID,
+		ContentHash:       hash,
 		EncryptedFullName: "enc:Embedded",
-		EncryptedEmail:   "enc:embedded@example.com",
-		Location:         "Remote",
-		Headline:         "Engineer",
-		Profile:          profile,
-		ProfileEmbedding: vec,
-		Source:           "manual_upload",
+		EncryptedEmail:    "enc:embedded@example.com",
+		Location:          "Remote",
+		Headline:          "Engineer",
+		Profile:           profile,
+		ProfileEmbedding:  vec,
+		Source:            "manual_upload",
 	})
 	return cand
 }
@@ -476,7 +482,10 @@ func makeIntent(tenantID shared.TenantID) services.IntentSnapshot {
 // makeNewApplication builds a fresh Application in status New for the given
 // (candidate, intent) pair.
 func makeNewApplication(
-	t interface{ Helper(); Fatal(...interface{}) },
+	t interface {
+		Helper()
+		Fatal(...interface{})
+	},
 	tenantID shared.TenantID,
 	candidateID, intentID uuid.UUID,
 ) *entities.Application {
@@ -498,7 +507,10 @@ func makeNewApplication(
 // and embedding scoring, landing in status Scored. Used as the pre-condition
 // for JudgeApplication tests.
 func makeScoredApplication(
-	t interface{ Helper(); Fatal(...interface{}) },
+	t interface {
+		Helper()
+		Fatal(...interface{})
+	},
 	tenantID shared.TenantID,
 	candidateID, intentID uuid.UUID,
 ) *entities.Application {

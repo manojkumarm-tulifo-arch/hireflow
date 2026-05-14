@@ -507,4 +507,3 @@ func (r *filterCapturingAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ 
 func (r *filterCapturingAppRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
 	return nil
 }
-

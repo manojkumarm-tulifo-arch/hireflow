@@ -21,7 +21,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type fakeAuditWriter struct {
-	events  []auditdomain.AuditEvent
+	events   []auditdomain.AuditEvent
 	writeErr error
 }
 

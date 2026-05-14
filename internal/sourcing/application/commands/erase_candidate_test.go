@@ -55,7 +55,7 @@ func newEraseStorage() *eraseStorage {
 	return &eraseStorage{deleteErrs: map[string]error{}}
 }
 
-func (s *eraseStorage) Put(_ context.Context, _ string, _ io.Reader) error  { return nil }
+func (s *eraseStorage) Put(_ context.Context, _ string, _ io.Reader) error { return nil }
 func (s *eraseStorage) Open(_ context.Context, _ string) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }

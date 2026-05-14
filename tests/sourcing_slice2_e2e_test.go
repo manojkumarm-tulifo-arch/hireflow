@@ -91,8 +91,8 @@ func TestSourcingSlice2_E2E(t *testing.T) {
 		// hello.pdf extracts to ~"hello world\n" (~12 chars). Set the OCR
 		// threshold below that so the test exercises the text path, not OCR
 		// fallback. Production default is 50.
-		OCRThreshold:  5,
-		RetryBackoff:  []time.Duration{time.Second, 5 * time.Second},
+		OCRThreshold: 5,
+		RetryBackoff: []time.Duration{time.Second, 5 * time.Second},
 	})
 	statusH := queries.NewGetBatchStatusHandler(uploadRepo)
 	candH := queries.NewGetCandidateHandler(candRepo, piiEnc, auditinfra.NewNoopAuditWriter())

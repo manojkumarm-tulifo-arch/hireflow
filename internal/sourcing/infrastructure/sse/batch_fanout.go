@@ -23,7 +23,7 @@ const subscriberChannelBuffer = 16
 type Subscriber struct {
 	BatchID uuid.UUID
 	C       chan []byte   // pre-formatted SSE-line bytes
-	Done    chan struct{}  // closed when the subscriber is removed
+	Done    chan struct{} // closed when the subscriber is removed
 }
 
 // BatchEventFanout subscribes to the in-process eventbus once and routes events

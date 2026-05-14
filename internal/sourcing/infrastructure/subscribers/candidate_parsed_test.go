@@ -14,9 +14,9 @@ import (
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
+	sourcingevents "github.com/hustle/hireflow/internal/sourcing/domain/events"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
-	sourcingevents "github.com/hustle/hireflow/internal/sourcing/domain/events"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 	"github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 )

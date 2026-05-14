@@ -60,13 +60,13 @@ func TestPostgresAuditWriter_Write_RoundTrip(t *testing.T) {
 
 	// Read the row back directly.
 	var (
-		gotActorID   uuid.UUID
-		gotTenantID  string
-		gotAction    string
-		gotResKind   string
-		gotResID     uuid.UUID
-		gotPayload   []byte
-		gotOccurred  time.Time
+		gotActorID  uuid.UUID
+		gotTenantID string
+		gotAction   string
+		gotResKind  string
+		gotResID    uuid.UUID
+		gotPayload  []byte
+		gotOccurred time.Time
 	)
 	row := pool.QueryRow(context.Background(), `
 		SELECT actor_user_id, tenant_id, action, resource_kind, resource_id, payload, occurred_at
@@ -143,4 +143,3 @@ func TestPostgresAuditWriter_Write_InvalidEventReturnsValidateError(t *testing.T
 	require.NoError(t, pool.QueryRow(context.Background(), `SELECT count(*) FROM audit_log`).Scan(&count))
 	assert.Equal(t, 0, count)
 }
-
