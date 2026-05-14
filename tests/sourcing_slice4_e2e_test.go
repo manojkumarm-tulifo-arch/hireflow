@@ -163,12 +163,19 @@ func TestSourcingSlice4_E2E(t *testing.T) {
 	)
 
 	// ── HTTP router ──────────────────────────────────────────────────────────
-	sourcingH := v1.NewSourcingHandler(
-		uploadH, statusH, candidateH, listAppH,
-		transitionAppH, retryH, rescoreH, eraseH,
-		batchFanout, 50*time.Millisecond, // short heartbeat for fast SSE test
-		logger,
-	)
+	sourcingH := v1.NewSourcingHandler(v1.SourcingHandlerDeps{
+		Upload:           uploadH,
+		Status:           statusH,
+		Candidate:        candidateH,
+		ListApplications: listAppH,
+		Transition:       transitionAppH,
+		RetryUpload:      retryH,
+		RescoreIntent:    rescoreH,
+		EraseCandidate:   eraseH,
+		Fanout:           batchFanout,
+		Heartbeat:        50 * time.Millisecond, // short heartbeat for fast SSE test
+		Logger:           logger,
+	})
 	router := chi.NewRouter()
 	// Inject identity for every request so SSE stream and all handlers see it.
 	router.Use(func(next http.Handler) http.Handler {

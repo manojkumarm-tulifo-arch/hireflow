@@ -43,38 +43,47 @@ type SourcingHandler struct {
 	logger           zerolog.Logger
 }
 
-// NewSourcingHandler wires the handler. The fanout may be nil if the
-// BatchEvents endpoint is not in use (e.g. in tests or before T13 wiring).
-// The heartbeat interval controls how often SSE keep-alive comments are sent;
-// pass 0 to use the default of 30 s.
-func NewSourcingHandler(
-	upload *commands.UploadResumeBatchHandler,
-	status *queries.GetBatchStatusHandler,
-	candidate *queries.GetCandidateHandler,
-	listApplications *queries.ListApplicationsHandler,
-	transition *commands.TransitionApplicationHandler,
-	retryUpload *commands.RetryResumeUploadHandler,
-	rescoreIntent *commands.RescoreIntentHandler,
-	eraseCandidate *commands.EraseCandidateHandler,
-	fanout *sse.BatchEventFanout,
-	heartbeat time.Duration,
-	logger zerolog.Logger,
-) *SourcingHandler {
+// SourcingHandlerDeps bundles all dependencies for SourcingHandler. Using a
+// named struct keeps call sites readable as the handler accreted features
+// across slices (11 positional args was the breaking point). Any field may
+// be nil when the corresponding endpoint isn't exercised in a given test;
+// production wiring fills them all in via cmd/api/main.go.
+type SourcingHandlerDeps struct {
+	Upload           *commands.UploadResumeBatchHandler
+	Status           *queries.GetBatchStatusHandler
+	Candidate        *queries.GetCandidateHandler
+	ListApplications *queries.ListApplicationsHandler
+	Transition       *commands.TransitionApplicationHandler
+	RetryUpload      *commands.RetryResumeUploadHandler
+	RescoreIntent    *commands.RescoreIntentHandler
+	EraseCandidate   *commands.EraseCandidateHandler
+	Fanout           *sse.BatchEventFanout
+	// Heartbeat is the SSE keep-alive interval. Zero means "use the production
+	// default of 30 s" — handy for tests that want to shorten it.
+	Heartbeat time.Duration
+	Logger    zerolog.Logger
+}
+
+// NewSourcingHandler wires the handler from a Deps struct. Fanout may be nil
+// when the BatchEvents endpoint isn't in scope (e.g. unit tests that don't
+// exercise SSE).
+func NewSourcingHandler(deps SourcingHandlerDeps) *SourcingHandler {
+	heartbeat := deps.Heartbeat
 	if heartbeat <= 0 {
 		heartbeat = defaultHeartbeat
 	}
 	return &SourcingHandler{
-		upload:           upload,
-		status:           status,
-		candidate:        candidate,
-		listApplications: listApplications,
-		transition:       transition,
-		retryUpload:      retryUpload,
-		rescoreIntent:    rescoreIntent,
-		eraseCandidate:   eraseCandidate,
-		fanout:           fanout,
+		upload:           deps.Upload,
+		status:           deps.Status,
+		candidate:        deps.Candidate,
+		listApplications: deps.ListApplications,
+		transition:       deps.Transition,
+		retryUpload:      deps.RetryUpload,
+		rescoreIntent:    deps.RescoreIntent,
+		eraseCandidate:   deps.EraseCandidate,
+		fanout:           deps.Fanout,
 		heartbeat:        heartbeat,
-		logger:           logger,
+		logger:           deps.Logger,
 	}
 }
 
