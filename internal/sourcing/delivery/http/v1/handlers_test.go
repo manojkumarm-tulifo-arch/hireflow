@@ -1058,3 +1058,77 @@ func TestRetryUpload_NoAuth_Returns401(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+// ---------------------------------------------------------------------------
+// RescoreIntent endpoint tests
+// ---------------------------------------------------------------------------
+
+// stubScoreIntentDispatcher is a local fake that satisfies the unexported
+// scoreIntentDispatcher interface inside the commands package. It is used
+// to construct a real *commands.RescoreIntentHandler without needing the full
+// ScoreIntentHandler dependency graph.
+type stubScoreIntentDispatcher struct{ err error }
+
+func (s *stubScoreIntentDispatcher) Handle(_ context.Context, _ commands.ScoreIntentInput) error {
+	return s.err
+}
+
+// buildRescoreIntentHandler creates a SourcingHandler wired with a
+// RescoreIntentHandler backed by the given application repo.
+func buildRescoreIntentHandler(t *testing.T, appRepo repositories.ApplicationRepository) *v1.SourcingHandler {
+	t.Helper()
+	repo := newMemRepo()
+	store := newMemStorage()
+	batchUpload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	dispatcher := &stubScoreIntentDispatcher{}
+	rescoreH := commands.NewRescoreIntentHandler(appRepo, dispatcher, auditinfra.NewNoopAuditWriter())
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, nil, rescoreH, zerolog.Nop())
+}
+
+func TestRescoreIntent_HappyPath_Returns202(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := &stubAppRepo{}
+
+	h := buildRescoreIntentHandler(t, appRepo)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	intentID := uuid.New()
+	req := httptest.NewRequest(http.MethodPost, "/intents/"+intentID.String()+"/applications:rescore", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+}
+
+func TestRescoreIntent_NoAuth_Returns401(t *testing.T) {
+	appRepo := &stubAppRepo{}
+
+	h := buildRescoreIntentHandler(t, appRepo)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/intents/"+uuid.New().String()+"/applications:rescore", nil)
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestRescoreIntent_InvalidIntentID_Returns400(t *testing.T) {
+	appRepo := &stubAppRepo{}
+
+	h := buildRescoreIntentHandler(t, appRepo)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/intents/not-a-uuid/applications:rescore", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

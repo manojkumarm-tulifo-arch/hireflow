@@ -438,11 +438,6 @@ func (h *SourcingHandler) RescoreIntent(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid_intent_id", "intent_id must be a uuid")
 		return
 	}
-	if h.rescoreIntent == nil {
-		writeError(w, http.StatusServiceUnavailable, "not_wired", "rescore handler not configured")
-		return
-	}
-
 	handleErr := h.rescoreIntent.Handle(r.Context(), commands.RescoreIntentInput{
 		TenantID:    identity.TenantID,
 		ActorUserID: identity.RecruiterID.UUID(),
