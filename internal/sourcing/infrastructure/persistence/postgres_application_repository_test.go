@@ -281,3 +281,90 @@ func TestApplicationTopByCoarseScore_OrdersCorrectly(t *testing.T) {
 	assert.Equal(t, apps[1].ID(), top2[0].ID(), "highest embedding score must come first")
 	assert.Equal(t, apps[0].ID(), top2[1].ID(), "second highest must come second")
 }
+
+// TestApplicationInvalidateJudgments_SkipsTerminalApps verifies that a rescore
+// does not clobber judgments on applications the recruiter has already
+// Rejected or Hired — those decisions are final and should survive.
+func TestApplicationInvalidateJudgments_SkipsTerminalApps(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresApplicationRepository(pool)
+	ctx := context.Background()
+	tenant := shared.NewTenantID()
+	intentID := uuid.New()
+	actor := uuid.New()
+
+	// Three scored apps: one stays Scored, one gets Rejected, one Hired.
+	scored := newApplication(t, tenant, intentID)
+	recordFullScore(t, scored, 0.7)
+	require.NoError(t, repo.Save(ctx, scored))
+
+	rejected := newApplication(t, tenant, intentID)
+	recordFullScore(t, rejected, 0.6)
+	require.NoError(t, rejected.Reject(actor, "not a fit"))
+	require.NoError(t, repo.Save(ctx, rejected))
+
+	hired := newApplication(t, tenant, intentID)
+	recordFullScore(t, hired, 0.8)
+	require.NoError(t, hired.Hire(actor))
+	require.NoError(t, repo.Save(ctx, hired))
+
+	require.NoError(t, repo.InvalidateJudgmentsForIntent(ctx, tenant, intentID))
+
+	// Scored app must be nulled.
+	scoredAfter, err := repo.FindByID(ctx, tenant, scored.ID())
+	require.NoError(t, err)
+	assert.Nil(t, scoredAfter.OverallScore(), "Scored app overall_score must be NULL")
+
+	// Rejected and Hired must retain their overall_score and llm_judgment.
+	rejectedAfter, err := repo.FindByID(ctx, tenant, rejected.ID())
+	require.NoError(t, err)
+	require.NotNil(t, rejectedAfter.OverallScore(),
+		"Rejected app overall_score must survive invalidate")
+
+	hiredAfter, err := repo.FindByID(ctx, tenant, hired.ID())
+	require.NoError(t, err)
+	require.NotNil(t, hiredAfter.OverallScore(),
+		"Hired app overall_score must survive invalidate")
+}
+
+// TestApplicationTopByCoarseScore_SkipsTerminalApps verifies that the LLM judge
+// fanout does not enqueue terminal-decision applications.
+func TestApplicationTopByCoarseScore_SkipsTerminalApps(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresApplicationRepository(pool)
+	ctx := context.Background()
+	tenant := shared.NewTenantID()
+	intentID := uuid.New()
+	actor := uuid.New()
+
+	// Four apps: Scored (highest emb), Rejected, Hired, Shortlisted.
+	// Top-K should return only Scored + Shortlisted.
+	scored := newApplication(t, tenant, intentID)
+	recordFullScore(t, scored, 0.9)
+	require.NoError(t, repo.Save(ctx, scored))
+
+	rejected := newApplication(t, tenant, intentID)
+	recordFullScore(t, rejected, 0.85)
+	require.NoError(t, rejected.Reject(actor, "not a fit"))
+	require.NoError(t, repo.Save(ctx, rejected))
+
+	hired := newApplication(t, tenant, intentID)
+	recordFullScore(t, hired, 0.8)
+	require.NoError(t, hired.Hire(actor))
+	require.NoError(t, repo.Save(ctx, hired))
+
+	shortlisted := newApplication(t, tenant, intentID)
+	recordFullScore(t, shortlisted, 0.5)
+	require.NoError(t, shortlisted.Shortlist(actor))
+	require.NoError(t, repo.Save(ctx, shortlisted))
+
+	top, err := repo.TopByCoarseScoreForIntent(ctx, tenant, intentID, 10)
+	require.NoError(t, err)
+	require.Len(t, top, 2, "only Scored + Shortlisted should be returned")
+
+	gotIDs := map[uuid.UUID]bool{top[0].ID(): true, top[1].ID(): true}
+	assert.True(t, gotIDs[scored.ID()], "Scored app must be in results")
+	assert.True(t, gotIDs[shortlisted.ID()], "Shortlisted app must be in results")
+	assert.False(t, gotIDs[rejected.ID()], "Rejected app must NOT be in results")
+	assert.False(t, gotIDs[hired.ID()], "Hired app must NOT be in results")
+}
