@@ -169,6 +169,36 @@ func decodeEvent(name string, aggID uuid.UUID, tenant shared.TenantID, at time.T
 			return nil, err
 		}
 		return e, nil
+	case "sourcing.ApplicationShortlisted":
+		var e events.ApplicationShortlisted
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	case "sourcing.ApplicationRejected":
+		var e events.ApplicationRejected
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	case "sourcing.ApplicationHired":
+		var e events.ApplicationHired
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	case "sourcing.ApplicationMovedToInterviewing":
+		var e events.ApplicationMovedToInterviewing
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	case "sourcing.CandidateErased":
+		var e events.CandidateErased
+		if err := json.Unmarshal(payload, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
 	}
 	return nil, fmt.Errorf("unknown event name: %s", name)
 }

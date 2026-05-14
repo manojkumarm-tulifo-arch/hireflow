@@ -44,13 +44,13 @@ func (s ApplicationStatus) String() string { return string(s) }
 // IsTerminal reports whether the status is a terminal state from which the
 // worker will not proceed without an explicit rescore trigger.
 //
-// Terminal statuses: Excluded, EmbedFailed, JudgeFailed, Stale,
-// Shortlisted, Rejected, Interviewing, Hired.
-// Non-terminal: New, Scored.
+// Terminal statuses (slice 4): Excluded, EmbedFailed, JudgeFailed, Stale,
+// Rejected, Hired.
+// Non-terminal: New, Scored, Shortlisted, Interviewing.
 func (s ApplicationStatus) IsTerminal() bool {
 	switch s {
 	case AppStatusExcluded, AppStatusEmbedFailed, AppStatusJudgeFailed, AppStatusStale,
-		AppStatusShortlisted, AppStatusRejected, AppStatusInterviewing, AppStatusHired:
+		AppStatusRejected, AppStatusHired:
 		return true
 	}
 	return false
@@ -60,9 +60,11 @@ func (s ApplicationStatus) IsTerminal() bool {
 //
 // Permitted transitions:
 //
-//	New        → Scored | Excluded | EmbedFailed
-//	Scored     → JudgeFailed | Stale | Shortlisted | Rejected | Hired  (slice-4 compat)
-//	Terminals  → New  (explicit rescore path)
+//	New            → Scored | Excluded | EmbedFailed
+//	Scored         → JudgeFailed | Stale | Shortlisted | Rejected | Hired
+//	Shortlisted    → Interviewing | Rejected | Hired | New (rescore)
+//	Interviewing   → Rejected | Hired | New (rescore)
+//	Terminals      → New  (explicit rescore path)
 func (s ApplicationStatus) CanTransitionTo(next ApplicationStatus) bool {
 	// All terminals can be reset to New via the rescore path.
 	if s.IsTerminal() {
@@ -79,6 +81,16 @@ func (s ApplicationStatus) CanTransitionTo(next ApplicationStatus) bool {
 		switch next {
 		case AppStatusJudgeFailed, AppStatusStale,
 			AppStatusShortlisted, AppStatusRejected, AppStatusHired:
+			return true
+		}
+	case AppStatusShortlisted:
+		switch next {
+		case AppStatusInterviewing, AppStatusRejected, AppStatusHired, AppStatusNew:
+			return true
+		}
+	case AppStatusInterviewing:
+		switch next {
+		case AppStatusRejected, AppStatusHired, AppStatusNew:
 			return true
 		}
 	}

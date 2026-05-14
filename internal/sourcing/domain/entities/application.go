@@ -2,6 +2,7 @@ package entities
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -295,6 +296,92 @@ func (a *Application) ScheduleRetry(reason string, now time.Time, schedule []tim
 		a.nextAttemptAt = now.Add(schedule[a.attemptCount-1])
 	}
 	a.updatedAt = now.UTC()
+}
+
+// Shortlist transitions Scored → Shortlisted. Emits ApplicationShortlisted.
+func (a *Application) Shortlist(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusShortlisted) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusShortlisted
+	a.touch(t)
+	a.emit(events.ApplicationShortlisted{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// Reject transitions Scored | Shortlisted | Interviewing → Rejected.
+// reason is required (>=1 char, whitespace-only counts as empty).
+// Emits ApplicationRejected with the reason and actor.
+func (a *Application) Reject(actorUserID uuid.UUID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return errors.New("reject: reason required")
+	}
+	if !a.status.CanTransitionTo(vo.AppStatusRejected) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusRejected
+	a.lastError = reason
+	a.touch(t)
+	a.emit(events.ApplicationRejected{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		Reason:        reason,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// Hire transitions Scored | Shortlisted | Interviewing → Hired.
+// Emits ApplicationHired.
+func (a *Application) Hire(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusHired) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusHired
+	a.touch(t)
+	a.emit(events.ApplicationHired{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// MoveToInterviewing transitions Shortlisted → Interviewing.
+// Emits ApplicationMovedToInterviewing.
+func (a *Application) MoveToInterviewing(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusInterviewing) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusInterviewing
+	a.touch(t)
+	a.emit(events.ApplicationMovedToInterviewing{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
 }
 
 // RehydrateApplicationInput is for repository reads — bypasses event emission.

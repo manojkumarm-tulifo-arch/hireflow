@@ -32,11 +32,11 @@ func TestApplicationStatus_IsTerminal(t *testing.T) {
 	terminals := []vo.ApplicationStatus{
 		vo.AppStatusExcluded, vo.AppStatusEmbedFailed,
 		vo.AppStatusJudgeFailed, vo.AppStatusStale,
-		vo.AppStatusShortlisted, vo.AppStatusRejected,
-		vo.AppStatusInterviewing, vo.AppStatusHired,
+		vo.AppStatusRejected, vo.AppStatusHired,
 	}
 	nonTerminals := []vo.ApplicationStatus{
 		vo.AppStatusNew, vo.AppStatusScored,
+		vo.AppStatusShortlisted, vo.AppStatusInterviewing,
 	}
 	for _, s := range terminals {
 		assert.True(t, s.IsTerminal(), "%q should be terminal", s)
@@ -81,8 +81,26 @@ func TestApplicationStatus_CanTransitionTo(t *testing.T) {
 		{vo.AppStatusExcluded, vo.AppStatusScored, false},
 		{vo.AppStatusHired, vo.AppStatusNew, true},
 		{vo.AppStatusRejected, vo.AppStatusNew, true},
+		// Terminals → non-New disallowed
+		{vo.AppStatusHired, vo.AppStatusScored, false},
+		{vo.AppStatusRejected, vo.AppStatusShortlisted, false},
+
+		// Shortlisted → allowed
+		{vo.AppStatusShortlisted, vo.AppStatusInterviewing, true},
+		{vo.AppStatusShortlisted, vo.AppStatusRejected, true},
+		{vo.AppStatusShortlisted, vo.AppStatusHired, true},
 		{vo.AppStatusShortlisted, vo.AppStatusNew, true},
+		// Shortlisted → disallowed
+		{vo.AppStatusShortlisted, vo.AppStatusScored, false},
+		{vo.AppStatusShortlisted, vo.AppStatusExcluded, false},
+
+		// Interviewing → allowed
+		{vo.AppStatusInterviewing, vo.AppStatusRejected, true},
+		{vo.AppStatusInterviewing, vo.AppStatusHired, true},
 		{vo.AppStatusInterviewing, vo.AppStatusNew, true},
+		// Interviewing → disallowed
+		{vo.AppStatusInterviewing, vo.AppStatusScored, false},
+		{vo.AppStatusInterviewing, vo.AppStatusShortlisted, false},
 	}
 	for _, tc := range cases {
 		got := tc.from.CanTransitionTo(tc.to)
