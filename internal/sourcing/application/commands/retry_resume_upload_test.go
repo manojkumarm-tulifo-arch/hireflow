@@ -60,6 +60,10 @@ func (r *retryUploadRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uu
 	return nil, nil
 }
 
+func (r *retryUploadRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, _ uuid.UUID) (bool, error) {
+	return false, nil
+}
+
 // buildUploadInStatus builds and seeds a ResumeUpload with the given status.
 func buildUploadInStatus(t *testing.T, repo *retryUploadRepo, tenant shared.TenantID, status vo.UploadStatus) *entities.ResumeUpload {
 	t.Helper()

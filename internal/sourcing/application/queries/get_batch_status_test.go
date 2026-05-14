@@ -32,6 +32,9 @@ func (r *fakeListRepo) ClaimNextPending(context.Context) (*entities.ResumeUpload
 func (r *fakeListRepo) ListByBatch(_ context.Context, _ shared.TenantID, b uuid.UUID) ([]*entities.ResumeUpload, error) {
 	return r.items[b.String()], nil
 }
+func (r *fakeListRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, b uuid.UUID) (bool, error) {
+	return len(r.items[b.String()]) > 0, nil
+}
 
 func newUpload(t *testing.T, batchID uuid.UUID, status vo.UploadStatus) *entities.ResumeUpload {
 	t.Helper()

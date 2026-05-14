@@ -152,6 +152,21 @@ func (r *PostgresResumeUploadRepository) ListByBatch(ctx context.Context, tenant
 	return out, rows.Err()
 }
 
+// BatchExistsForTenant reports whether at least one resume_uploads row exists
+// for the given (tenant, batch_id). Used by the SSE endpoint to verify the
+// caller's tenant owns the batch before opening the stream.
+func (r *PostgresResumeUploadRepository) BatchExistsForTenant(ctx context.Context, tenant shared.TenantID, batchID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM resume_uploads WHERE tenant_id=$1 AND batch_id=$2)`,
+		tenant.String(), batchID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("batch exists check: %w", err)
+	}
+	return exists, nil
+}
+
 // ClaimNextPending — slice 1 simple polling. Returns the next claimable row
 // without locking; idempotent stages tolerate the rare two-workers-pick-same-row
 // race that results. Slice 4 swaps this for an UPDATE ... RETURNING that flips

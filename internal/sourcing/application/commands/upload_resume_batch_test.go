@@ -63,6 +63,9 @@ func (r *fakeRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, 
 func (r *fakeRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]*entities.ResumeUpload, error) {
 	return nil, nil
 }
+func (r *fakeRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, _ uuid.UUID) (bool, error) {
+	return false, nil
+}
 
 // fakeStorage records puts and serves opens from memory.
 type fakeStorage struct {

@@ -145,6 +145,35 @@ func TestListByBatch_TenantScoped(t *testing.T) {
 	assert.Empty(t, gotB, "tenantA must not see tenantB rows")
 }
 
+// TestBatchExistsForTenant_TenantScoped verifies the SSE ownership gate:
+// a batch_id belonging to tenant A must be invisible to tenant B, and a
+// never-existed batch_id returns false for any tenant.
+func TestBatchExistsForTenant_TenantScoped(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresResumeUploadRepository(pool)
+	ctx := context.Background()
+	tenantA := shared.NewTenantID()
+	tenantB := shared.NewTenantID()
+
+	uA := newUpload(t, tenantA)
+	require.NoError(t, repo.Save(ctx, uA))
+
+	// Owner sees their batch.
+	ok, err := repo.BatchExistsForTenant(ctx, tenantA, uA.BatchID())
+	require.NoError(t, err)
+	assert.True(t, ok, "owner must see their own batch")
+
+	// Cross-tenant attempt with the same UUID — must be hidden.
+	ok, err = repo.BatchExistsForTenant(ctx, tenantB, uA.BatchID())
+	require.NoError(t, err)
+	assert.False(t, ok, "tenantB must NOT see tenantA's batch")
+
+	// Never-existed batch_id.
+	ok, err = repo.BatchExistsForTenant(ctx, tenantA, uuid.New())
+	require.NoError(t, err)
+	assert.False(t, ok, "non-existent batch must return false")
+}
+
 func TestClaimNextPending_ReturnsAndAdvances(t *testing.T) {
 	pool := newPool(t)
 	repo := persistence.NewPostgresResumeUploadRepository(pool)

@@ -52,4 +52,10 @@ type ResumeUploadRepository interface {
 	// ListByBatch returns all uploads in a batch (tenant-scoped) for the
 	// status endpoint.
 	ListByBatch(ctx context.Context, tenant shared.TenantID, batchID uuid.UUID) ([]*entities.ResumeUpload, error)
+
+	// BatchExistsForTenant reports whether at least one resume_uploads row
+	// exists for the given (tenant, batch_id). Used by the SSE endpoint to
+	// gate access — a recruiter must not subscribe to another tenant's
+	// batch stream just by guessing a UUID.
+	BatchExistsForTenant(ctx context.Context, tenant shared.TenantID, batchID uuid.UUID) (bool, error)
 }
