@@ -32,6 +32,9 @@ func ParseRecruiterID(s string) (RecruiterID, error) {
 // String returns the canonical string form.
 func (r RecruiterID) String() string { return r.value.String() }
 
+// UUID returns the underlying uuid.UUID value.
+func (r RecruiterID) UUID() uuid.UUID { return r.value }
+
 // Equals compares two RecruiterIDs.
 func (r RecruiterID) Equals(other RecruiterID) bool { return r.value == other.value }
 

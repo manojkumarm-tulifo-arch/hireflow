@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	auditdomain "github.com/hustle/hireflow/internal/shared/audit/domain"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
@@ -572,4 +574,341 @@ func TestListApplications_InvalidIntentID_Returns400(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// Transition endpoint tests (shortlist / reject / hire)
+// ---------------------------------------------------------------------------
+
+// transitionAppRepo is an in-memory ApplicationRepository that supports
+// FindByID with a pre-seeded map, for testing lifecycle HTTP endpoints.
+type transitionAppRepo struct {
+	byID    map[uuid.UUID]*entities.Application
+	saveErr error
+}
+
+func newTransitionAppRepo() *transitionAppRepo {
+	return &transitionAppRepo{byID: map[uuid.UUID]*entities.Application{}}
+}
+
+func (r *transitionAppRepo) Save(_ context.Context, a *entities.Application) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
+	_ = a.PullEvents()
+	r.byID[a.ID()] = a
+	return nil
+}
+func (r *transitionAppRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UUID) (*entities.Application, error) {
+	if a, ok := r.byID[id]; ok {
+		return a, nil
+	}
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *transitionAppRepo) FindByCandidateAndIntent(_ context.Context, _ shared.TenantID, _, _ uuid.UUID) (*entities.Application, error) {
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *transitionAppRepo) ListByIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ repositories.ApplicationListFilter) ([]*entities.Application, error) {
+	return nil, nil
+}
+func (r *transitionAppRepo) ClaimNextNew(_ context.Context) (*entities.Application, error) {
+	return nil, repositories.ErrApplicationNotFound
+}
+func (r *transitionAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
+	return nil, nil
+}
+
+// noopAuditWriter satisfies auditdomain.AuditWriter and always succeeds.
+type noopAuditWriter struct{}
+
+func (noopAuditWriter) Write(_ context.Context, _ auditdomain.AuditEvent) error { return nil }
+
+// failAuditWriter satisfies auditdomain.AuditWriter and always fails.
+type failAuditWriter struct{ err error }
+
+func (f *failAuditWriter) Write(_ context.Context, _ auditdomain.AuditEvent) error { return f.err }
+
+// buildTransitionSourcingHandler creates a SourcingHandler wired with a
+// TransitionApplicationHandler backed by the given app repo and audit writer.
+func buildTransitionSourcingHandler(t *testing.T, appRepo repositories.ApplicationRepository, audit auditdomain.AuditWriter) *v1.SourcingHandler {
+	t.Helper()
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, nil, nil, zerolog.Nop())
+	transitionH := commands.NewTransitionApplicationHandler(appRepo, audit)
+	h.SetTransitionHandler(transitionH)
+	return h
+}
+
+// buildScoredApp builds a scored Application seeded in the given repo.
+func buildScoredApp(t *testing.T, repo *transitionAppRepo, tenant shared.TenantID) *entities.Application {
+	t.Helper()
+	app, err := entities.NewApplication(entities.NewApplicationInput{
+		TenantID:             tenant,
+		CandidateID:          uuid.New(),
+		IntentID:             uuid.New(),
+		IntentSpecVersion:    1,
+		ProfileSchemaVersion: 1,
+	})
+	require.NoError(t, err)
+	rules := vo.RuleMatchReport{
+		Results: []vo.RuleResult{
+			{Criterion: vo.RuleCriterion{Type: "skill", Name: "Go", Required: true}, Passed: true},
+		},
+	}
+	require.NoError(t, app.RecordRuleMatch(rules))
+	require.NoError(t, app.RecordEmbeddingScore(0.8))
+	require.NoError(t, app.MarkScored(nil))
+	_ = app.PullEvents()
+	repo.byID[app.ID()] = app
+	return app
+}
+
+func TestShortlistApplication_HappyPath_Returns204(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	app := buildScoredApp(t, appRepo, tenant)
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":shortlist", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestShortlistApplication_NotFound_Returns404(t *testing.T) {
+	appRepo := newTransitionAppRepo() // empty
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":shortlist", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestShortlistApplication_NoAuth_Returns401(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":shortlist", nil)
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestShortlistApplication_InvalidTransition_Returns400(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	// Build a rejected app — cannot shortlist.
+	app := buildScoredApp(t, appRepo, tenant)
+	require.NoError(t, app.Reject(uuid.New(), "not a fit"))
+	_ = app.PullEvents()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":shortlist", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestShortlistApplication_AuditFailure_Returns500(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	app := buildScoredApp(t, appRepo, tenant)
+
+	auditErr := errors.New("db down")
+	h := buildTransitionSourcingHandler(t, appRepo, &failAuditWriter{err: auditErr})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":shortlist", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestRejectApplication_HappyPath_Returns204(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	app := buildScoredApp(t, appRepo, tenant)
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	body := strings.NewReader(`{"reason":"does not meet requirements"}`)
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":reject", body)
+	req.Header.Set("Content-Type", "application/json")
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestRejectApplication_MissingReason_Returns400(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	app := buildScoredApp(t, appRepo, tenant)
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	body := strings.NewReader(`{"reason":""}`)
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":reject", body)
+	req.Header.Set("Content-Type", "application/json")
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRejectApplication_InvalidBody_Returns400(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	body := strings.NewReader(`not json`)
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":reject", body)
+	req.Header.Set("Content-Type", "application/json")
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRejectApplication_NotFound_Returns404(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	body := strings.NewReader(`{"reason":"not a fit"}`)
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":reject", body)
+	req.Header.Set("Content-Type", "application/json")
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestRejectApplication_NoAuth_Returns401(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	body := strings.NewReader(`{"reason":"overqualified"}`)
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":reject", body)
+	req.Header.Set("Content-Type", "application/json")
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestHireApplication_HappyPath_Returns204(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	app := buildScoredApp(t, appRepo, tenant)
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":hire", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestHireApplication_NotFound_Returns404(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":hire", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHireApplication_InvalidTransition_Returns400(t *testing.T) {
+	tenant := shared.NewTenantID()
+	appRepo := newTransitionAppRepo()
+	// Build a New (unscored) app — cannot hire.
+	app, err := entities.NewApplication(entities.NewApplicationInput{
+		TenantID:             tenant,
+		CandidateID:          uuid.New(),
+		IntentID:             uuid.New(),
+		IntentSpecVersion:    1,
+		ProfileSchemaVersion: 1,
+	})
+	require.NoError(t, err)
+	appRepo.byID[app.ID()] = app
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+app.ID().String()+":hire", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHireApplication_NoAuth_Returns401(t *testing.T) {
+	appRepo := newTransitionAppRepo()
+
+	h := buildTransitionSourcingHandler(t, appRepo, noopAuditWriter{})
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":hire", nil)
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

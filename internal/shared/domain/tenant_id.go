@@ -34,6 +34,9 @@ func ParseTenantID(s string) (TenantID, error) {
 // String returns the canonical string form.
 func (t TenantID) String() string { return t.value.String() }
 
+// UUID returns the underlying uuid.UUID value.
+func (t TenantID) UUID() uuid.UUID { return t.value }
+
 // Equals compares two TenantIDs.
 func (t TenantID) Equals(other TenantID) bool { return t.value == other.value }
 

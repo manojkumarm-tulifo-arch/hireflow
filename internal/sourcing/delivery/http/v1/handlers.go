@@ -18,6 +18,7 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/application/queries"
+	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 )
@@ -28,6 +29,7 @@ type SourcingHandler struct {
 	status           *queries.GetBatchStatusHandler
 	candidate        *queries.GetCandidateHandler
 	listApplications *queries.ListApplicationsHandler
+	transition       *commands.TransitionApplicationHandler
 	logger           zerolog.Logger
 }
 
@@ -46,6 +48,13 @@ func NewSourcingHandler(
 		listApplications: listApplications,
 		logger:           logger,
 	}
+}
+
+// SetTransitionHandler wires the optional TransitionApplicationHandler.
+// Called by tests and main.go after construction (avoids changing the
+// constructor signature until T13 wires the full dep graph).
+func (h *SourcingHandler) SetTransitionHandler(t *commands.TransitionApplicationHandler) {
+	h.transition = t
 }
 
 // BatchUpload handles POST /intents/{intent_id}/resumes:batch.
@@ -311,6 +320,76 @@ func (h *SourcingHandler) ListApplications(w http.ResponseWriter, r *http.Reques
 		resp.Items = []ApplicationListItem{}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// ShortlistApplication handles POST /applications/{application_id}:shortlist.
+func (h *SourcingHandler) ShortlistApplication(w http.ResponseWriter, r *http.Request) {
+	h.transitionApplication(w, r, commands.ActionShortlist, "")
+}
+
+// RejectApplication handles POST /applications/{application_id}:reject.
+func (h *SourcingHandler) RejectApplication(w http.ResponseWriter, r *http.Request) {
+	var body ApplicationRejectRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	if body.Reason == "" {
+		writeError(w, http.StatusBadRequest, "reason_required", "reason is required")
+		return
+	}
+	h.transitionApplication(w, r, commands.ActionReject, body.Reason)
+}
+
+// HireApplication handles POST /applications/{application_id}:hire.
+func (h *SourcingHandler) HireApplication(w http.ResponseWriter, r *http.Request) {
+	h.transitionApplication(w, r, commands.ActionHire, "")
+}
+
+// transitionApplication is the shared implementation for shortlist/reject/hire.
+func (h *SourcingHandler) transitionApplication(
+	w http.ResponseWriter,
+	r *http.Request,
+	action commands.ApplicationAction,
+	rejectReason string,
+) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	applicationID, err := uuid.Parse(chi.URLParam(r, "application_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_application_id", "application_id must be a uuid")
+		return
+	}
+	if h.transition == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "transition handler not configured")
+		return
+	}
+
+	handleErr := h.transition.Handle(r.Context(), commands.TransitionApplicationInput{
+		TenantID:      identity.TenantID,
+		ActorUserID:   identity.RecruiterID.UUID(),
+		ApplicationID: applicationID,
+		Action:        action,
+		RejectReason:  rejectReason,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrApplicationNotFound) {
+			writeError(w, http.StatusNotFound, "application_not_found", "application not found")
+			return
+		}
+		if errors.Is(handleErr, entities.ErrInvalidTransition) {
+			writeError(w, http.StatusBadRequest, "invalid_transition", "transition not permitted for current status")
+			return
+		}
+		// "reject: reason required" is already guarded above, but handle defensively.
+		h.logger.Error().Err(handleErr).Str("action", string(action)).Msg("application transition failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // multipartSource adapts multipart.Reader to dto.BatchItemSource.
