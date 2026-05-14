@@ -65,6 +65,10 @@ func (s ApplicationStatus) IsTerminal() bool {
 //	Shortlisted    → Interviewing | Rejected | Hired | New (rescore)
 //	Interviewing   → Rejected | Hired | New (rescore)
 //	Terminals      → New  (explicit rescore path)
+//
+// Note: LLM judgment can be (re-)recorded on Scored, Shortlisted, or
+// Interviewing (any post-scoring lifecycle state) when llm_judgment is nil.
+// See Application.RecordLLMJudgment for details.
 func (s ApplicationStatus) CanTransitionTo(next ApplicationStatus) bool {
 	// All terminals can be reset to New via the rescore path.
 	if s.IsTerminal() {

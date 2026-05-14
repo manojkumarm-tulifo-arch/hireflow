@@ -255,6 +255,60 @@ func TestRecordLLMJudgment_RejectsWhenNotScored(t *testing.T) {
 	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
 }
 
+func TestRecordLLMJudgment_FromShortlisted_NilJudgment_Succeeds(t *testing.T) {
+	app := shortlistedApp(t)
+	j := vo.LLMJudgment{Score: 65, Summary: "solid", PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusShortlisted, app.Status(), "status must remain Shortlisted")
+	require.NotNil(t, app.LLMJudgment())
+	require.NotNil(t, app.OverallScore())
+	assert.InDelta(t, 65.0, *app.OverallScore(), 1e-9)
+	assert.Empty(t, app.PullEvents(), "RecordLLMJudgment must not emit events")
+}
+
+func TestRecordLLMJudgment_FromInterviewing_NilJudgment_Succeeds(t *testing.T) {
+	app := interviewingApp(t)
+	j := vo.LLMJudgment{Score: 78, Summary: "strong", PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusInterviewing, app.Status(), "status must remain Interviewing")
+	require.NotNil(t, app.LLMJudgment())
+	require.NotNil(t, app.OverallScore())
+	assert.InDelta(t, 78.0, *app.OverallScore(), 1e-9)
+	assert.Empty(t, app.PullEvents(), "RecordLLMJudgment must not emit events")
+}
+
+func TestRecordLLMJudgment_FromShortlisted_ExistingJudgment_ReturnsError(t *testing.T) {
+	app := shortlistedApp(t)
+	// Rehydrate with an existing judgment to simulate post-scoring state
+	j1 := vo.LLMJudgment{Score: 70, PromptVersion: "v1"}
+	require.NoError(t, app.RecordLLMJudgment(j1))
+
+	j2 := vo.LLMJudgment{Score: 80, PromptVersion: "v2"}
+	err := app.RecordLLMJudgment(j2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already recorded")
+}
+
+func TestRecordLLMJudgment_FromHired_ReturnsErrInvalidTransition(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Hire(uuid.New()))
+	_ = app.PullEvents()
+	j := vo.LLMJudgment{Score: 80, PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestRecordLLMJudgment_FromRejected_ReturnsErrInvalidTransition(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Reject(uuid.New(), "not a fit"))
+	_ = app.PullEvents()
+	j := vo.LLMJudgment{Score: 80, PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
 // ── MarkJudgeFailed ───────────────────────────────────────────────────────────
 
 func TestMarkJudgeFailed_FromScored_EmitsEvent(t *testing.T) {

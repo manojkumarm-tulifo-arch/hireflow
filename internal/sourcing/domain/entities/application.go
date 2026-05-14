@@ -238,12 +238,21 @@ func (a *Application) MarkScored(overallScore *float64) error {
 	return nil
 }
 
-// RecordLLMJudgment stores the LLM judgment on a Scored application.
-// Only valid when status == Scored. Updates overall_score and score_band.
-// Does NOT emit a new event — the row is already Scored.
+// RecordLLMJudgment stores the LLM judgment on a post-scoring application.
+// Valid when status is Scored, Shortlisted, or Interviewing — any state where
+// the recruiter's lifecycle decision should be preserved while a fresh judgment
+// is recorded after an invalidate/rescore cycle.
+// Requires llm_judgment to be nil (call rescore first to clear an existing one).
+// Updates overall_score and score_band. Does NOT emit a new event.
 func (a *Application) RecordLLMJudgment(j vo.LLMJudgment) error {
-	if a.status != vo.AppStatusScored {
+	switch a.status {
+	case vo.AppStatusScored, vo.AppStatusShortlisted, vo.AppStatusInterviewing:
+		// ok — these are post-scoring lifecycle states
+	default:
 		return ErrInvalidTransition
+	}
+	if a.llmJudgment != nil {
+		return errors.New("llm_judgment already recorded; call rescore first to clear it")
 	}
 	t := time.Now().UTC()
 	a.llmJudgment = &j
