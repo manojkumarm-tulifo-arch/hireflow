@@ -193,7 +193,7 @@ func (h *SourcingHandler) GetCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.candidate.Handle(r.Context(), identity.TenantID, candidateID)
+	out, err := h.candidate.Handle(r.Context(), identity.TenantID, identity.RecruiterID.UUID(), candidateID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrCandidateNotFound) {
 			writeError(w, http.StatusNotFound, "candidate_not_found", "candidate not found")

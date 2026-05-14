@@ -149,7 +149,7 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	candRepo := newStubCandRepo()
-	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, auditinfra.NewNoopAuditWriter())
 	// nil for listApplications, transition, and eraseCandidate — slice-1/2 tests don't exercise those endpoints.
 	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop()), repo, store
 }
@@ -345,7 +345,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 
 	candRepo := newStubCandRepo()
 	candRepo.byID[cand.ID().String()] = cand
-	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, auditinfra.NewNoopAuditWriter())
 
 	repo := newMemRepo()
 	store := newMemStorage()
@@ -375,7 +375,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 
 func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	candRepo := newStubCandRepo() // empty — nothing stored
-	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, auditinfra.NewNoopAuditWriter())
 
 	repo := newMemRepo()
 	store := newMemStorage()
@@ -396,7 +396,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 
 func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	candRepo := newStubCandRepo()
-	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, auditinfra.NewNoopAuditWriter())
 
 	repo := newMemRepo()
 	store := newMemStorage()
@@ -413,6 +413,78 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// capturingAuditWriter records every Write call for assertion in handler tests.
+type capturingAuditWriter struct {
+	events []auditdomain.AuditEvent
+	err    error
+}
+
+func (w *capturingAuditWriter) Write(_ context.Context, e auditdomain.AuditEvent) error {
+	if w.err != nil {
+		return w.err
+	}
+	w.events = append(w.events, e)
+	return nil
+}
+
+func TestGetCandidate_AuditWrittenOnHappyPath(t *testing.T) {
+	tenant := shared.NewTenantID()
+	cand := newCandidateForHandler(t, tenant)
+
+	candRepo := newStubCandRepo()
+	candRepo.byID[cand.ID().String()] = cand
+	capture := &capturingAuditWriter{}
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, capture)
+
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop())
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/candidates/"+cand.ID().String(), nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, capture.events, 1, "expected exactly one audit event")
+	ev := capture.events[0]
+	assert.Equal(t, "candidate_read", ev.Action)
+	assert.Equal(t, "candidate", ev.ResourceKind)
+	assert.Equal(t, cand.ID(), ev.ResourceID)
+}
+
+func TestGetCandidate_AuditFailure_Returns500(t *testing.T) {
+	tenant := shared.NewTenantID()
+	cand := newCandidateForHandler(t, tenant)
+
+	candRepo := newStubCandRepo()
+	candRepo.byID[cand.ID().String()] = cand
+	auditErr := errors.New("audit db down")
+	capture := &capturingAuditWriter{err: auditErr}
+	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{}, capture)
+
+	repo := newMemRepo()
+	store := newMemStorage()
+	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, nil, nil, nil, 0, zerolog.Nop())
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/candidates/"+cand.ID().String(), nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // ---------------------------------------------------------------------------

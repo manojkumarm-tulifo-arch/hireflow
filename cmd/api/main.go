@@ -63,6 +63,7 @@ import (
 	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
+	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 )
 
 func main() {
@@ -182,9 +183,12 @@ func main() {
 	resumeParser := sourcingparsing.NewAnthropicParser(anthropicClient.SDK(), anthropicCfg.Model)
 	ocrExtractor := sourcingocr.NewClaudeVision(anthropicClient.SDK(), anthropicCfg.Model)
 
+	// Audit writer — used by any command/query handler that must audit PII access.
+	auditWriter := auditinfra.NewPostgresAuditWriter(pool)
+
 	// Candidate repository + detail-query handler.
 	candidateRepo := sourcingpersist.NewPostgresCandidateRepository(pool)
-	candidateHandler := sourcingqueries.NewGetCandidateHandler(candidateRepo, piiEnc)
+	candidateHandler := sourcingqueries.NewGetCandidateHandler(candidateRepo, piiEnc, auditWriter)
 
 	sourcingRepo := sourcingpersist.NewPostgresResumeUploadRepository(pool)
 	uploadHandler := sourcingcommands.NewUploadResumeBatchHandler(
