@@ -42,6 +42,7 @@ import (
 	postingmsg "github.com/hustle/hireflow/internal/jobposting/infrastructure/messaging"
 	postingpersist "github.com/hustle/hireflow/internal/jobposting/infrastructure/persistence"
 	postingsubs "github.com/hustle/hireflow/internal/jobposting/infrastructure/subscribers"
+	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/eventbus"
 	sharedanthropic "github.com/hustle/hireflow/internal/shared/infrastructure/llm/anthropic"
@@ -50,8 +51,8 @@ import (
 	sourcinghttp "github.com/hustle/hireflow/internal/sourcing/delivery/http/v1"
 	sourcingsvc "github.com/hustle/hireflow/internal/sourcing/domain/services"
 	sourcingclients "github.com/hustle/hireflow/internal/sourcing/infrastructure/clients"
-	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingembed "github.com/hustle/hireflow/internal/sourcing/infrastructure/embedding"
+	sourcingenc "github.com/hustle/hireflow/internal/sourcing/infrastructure/encryption"
 	sourcingjudging "github.com/hustle/hireflow/internal/sourcing/infrastructure/judging"
 	sourcingmsg "github.com/hustle/hireflow/internal/sourcing/infrastructure/messaging"
 	sourcingocr "github.com/hustle/hireflow/internal/sourcing/infrastructure/ocr"
@@ -59,6 +60,7 @@ import (
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
 	sourcingscoring "github.com/hustle/hireflow/internal/sourcing/infrastructure/scoring"
+	sourcingsse "github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
 	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
@@ -182,9 +184,12 @@ func main() {
 	resumeParser := sourcingparsing.NewAnthropicParser(anthropicClient.SDK(), anthropicCfg.Model)
 	ocrExtractor := sourcingocr.NewClaudeVision(anthropicClient.SDK(), anthropicCfg.Model)
 
+	// Audit writer — used by any command/query handler that must audit PII access.
+	auditWriter := auditinfra.NewPostgresAuditWriter(pool)
+
 	// Candidate repository + detail-query handler.
 	candidateRepo := sourcingpersist.NewPostgresCandidateRepository(pool)
-	candidateHandler := sourcingqueries.NewGetCandidateHandler(candidateRepo, piiEnc)
+	candidateHandler := sourcingqueries.NewGetCandidateHandler(candidateRepo, piiEnc, auditWriter)
 
 	sourcingRepo := sourcingpersist.NewPostgresResumeUploadRepository(pool)
 	uploadHandler := sourcingcommands.NewUploadResumeBatchHandler(
@@ -261,7 +266,24 @@ func main() {
 	// List applications query handler — replaces the nil from T18.
 	listApplicationsHandler := sourcingqueries.NewListApplicationsHandler(applicationRepo, candidateRepo, piiEnc)
 
-	sourcingHandler := sourcinghttp.NewSourcingHandler(uploadHandler, statusHandler, candidateHandler, listApplicationsHandler, logger)
+	// Slice 4 — recruiter lifecycle command handlers.
+	transitionApplicationHandler := sourcingcommands.NewTransitionApplicationHandler(applicationRepo, auditWriter)
+	retryResumeUploadHandler := sourcingcommands.NewRetryResumeUploadHandler(sourcingRepo)
+	rescoreIntentHandler := sourcingcommands.NewRescoreIntentHandler(applicationRepo, scoreIntentHandler, auditWriter)
+	eraseCandidateHandler := sourcingcommands.NewEraseCandidateHandler(candidateRepo, resumeStorage, auditWriter, bus, logger)
+
+	// Slice 4 — SSE batch event fanout.
+	batchFanout := sourcingsse.NewBatchEventFanout(logger)
+	bus.Subscribe("sourcing.ResumeUploadAccepted", batchFanout.OnEvent)
+	bus.Subscribe("sourcing.ResumeUploadFailed", batchFanout.OnEvent)
+	bus.Subscribe("sourcing.ResumeExtracted", batchFanout.OnEvent)
+	bus.Subscribe("sourcing.ResumeParsed", batchFanout.OnEvent)
+
+	sourcingHandler := sourcinghttp.NewSourcingHandler(
+		uploadHandler, statusHandler, candidateHandler, listApplicationsHandler,
+		transitionApplicationHandler, retryResumeUploadHandler, rescoreIntentHandler, eraseCandidateHandler,
+		batchFanout, 30*time.Second, logger,
+	)
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})

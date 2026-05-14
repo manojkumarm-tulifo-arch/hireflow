@@ -93,6 +93,19 @@ func (l *LocalFS) MoveToQuarantine(ctx context.Context, key string) (string, err
 	return newKey, nil
 }
 
+// Delete removes the file at key. Idempotent — deleting a missing key returns
+// nil. Returns ErrUnsafeKey if key would escape the storage root.
+func (l *LocalFS) Delete(ctx context.Context, key string) error {
+	full, err := l.safePath(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove: %w", err)
+	}
+	return nil
+}
+
 // safePath joins root and key, refusing keys that escape root.
 func (l *LocalFS) safePath(key string) (string, error) {
 	// Reject keys that explicitly contain ".." path elements.

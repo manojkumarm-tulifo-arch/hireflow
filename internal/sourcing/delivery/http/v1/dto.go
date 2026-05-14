@@ -115,3 +115,8 @@ type ApplicationListFacets struct {
 	Moderate int `json:"moderate"`
 	Weak     int `json:"weak"`
 }
+
+// ApplicationRejectRequest is the request body for POST /applications/{id}:reject.
+type ApplicationRejectRequest struct {
+	Reason string `json:"reason"`
+}

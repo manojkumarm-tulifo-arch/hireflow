@@ -158,6 +158,86 @@ func (r *PostgresCandidateRepository) UpdateProfileEmbedding(ctx context.Context
 	return nil
 }
 
+// EraseCascade transactionally deletes the candidate and all associated rows.
+// Deletion order: judge_jobs → applications → resume_uploads_dedup → resume_uploads → candidates.
+// Returns ErrCandidateNotFound when the candidate row does not exist.
+// Storage keys of deleted resume_uploads are returned so the caller can
+// best-effort delete blobs outside the transaction.
+func (r *PostgresCandidateRepository) EraseCascade(ctx context.Context, tenant shared.TenantID, candidateID uuid.UUID) ([]string, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Collect storage keys before deleting rows so we can clean up blobs.
+	rows, err := tx.Query(ctx,
+		`SELECT storage_key FROM resume_uploads WHERE candidate_id=$1 AND tenant_id=$2`,
+		candidateID, tenant.String(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query storage keys: %w", err)
+	}
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan storage key: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate storage keys: %w", err)
+	}
+
+	// Delete in dependency order.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM judge_jobs WHERE application_id IN (SELECT id FROM applications WHERE candidate_id=$1 AND tenant_id=$2)`,
+		candidateID, tenant.String(),
+	); err != nil {
+		return nil, fmt.Errorf("delete judge_jobs: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM applications WHERE candidate_id=$1 AND tenant_id=$2`,
+		candidateID, tenant.String(),
+	); err != nil {
+		return nil, fmt.Errorf("delete applications: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM resume_uploads_dedup WHERE tenant_id=$1 AND content_hash IN (SELECT content_hash FROM resume_uploads WHERE candidate_id=$2 AND tenant_id=$1)`,
+		tenant.String(), candidateID,
+	); err != nil {
+		return nil, fmt.Errorf("delete resume_uploads_dedup: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM resume_uploads WHERE candidate_id=$1 AND tenant_id=$2`,
+		candidateID, tenant.String(),
+	); err != nil {
+		return nil, fmt.Errorf("delete resume_uploads: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`DELETE FROM candidates WHERE id=$1 AND tenant_id=$2`,
+		candidateID, tenant.String(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delete candidate: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, repositories.ErrCandidateNotFound
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return keys, nil
+}
+
 func scanCandidate(rs rowScanner) (*entities.Candidate, error) {
 	var row candidateRow
 	err := rs.Scan(

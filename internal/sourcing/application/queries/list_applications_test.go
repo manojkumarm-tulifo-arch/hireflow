@@ -43,6 +43,9 @@ func (r *stubListApplicationRepo) ClaimNextNew(_ context.Context) (*entities.App
 func (r *stubListApplicationRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
 	return nil, nil
 }
+func (r *stubListApplicationRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
 
 // stubListCandidateRepo supports FindByID with a preset map.
 type stubListCandidateRepo struct {
@@ -66,6 +69,9 @@ func (r *stubListCandidateRepo) ListByTenant(_ context.Context, _ shared.TenantI
 }
 func (r *stubListCandidateRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
+}
+func (r *stubListCandidateRepo) EraseCascade(_ context.Context, _ shared.TenantID, id uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
 }
 
 // stubListEncryptor stores plaintext as "ENC:<plaintext>" and reverses it.
@@ -498,4 +504,6 @@ func (r *filterCapturingAppRepo) ClaimNextNew(_ context.Context) (*entities.Appl
 func (r *filterCapturingAppRepo) TopByCoarseScoreForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ int) ([]*entities.Application, error) {
 	return nil, nil
 }
-
+func (r *filterCapturingAppRepo) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}

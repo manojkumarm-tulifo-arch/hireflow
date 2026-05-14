@@ -136,12 +136,14 @@ Reload your shell or `source ~/.zshrc` so the variables are picked up.
 
 ### 3.6 Apply migrations
 
-Each bounded context owns its own schema and tracking table — `make migrate-up` runs all three in order:
+Each bounded context owns its own schema and tracking table — `make migrate-up` runs all five in order:
 
 ```bash
 make migrate-up
-# auth → hiringintent → jobposting
+# auth → hiringintent → jobposting → sourcing → shared
 ```
+
+The `migrations/shared/` directory holds cross-context schema changes (e.g. the `audit_log` table introduced in sourcing slice 4). The `MIGRATE_SHARED` Makefile variable targets that path with its own tracking table (`schema_migrations_shared`), so shared migrations never collide with per-context ones.
 
 Verify the 13 tables exist:
 

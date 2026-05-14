@@ -16,4 +16,8 @@ type ResumeStorage interface {
 	// MoveToQuarantine renames a key into a quarantine namespace. Used after
 	// a positive virus scan.
 	MoveToQuarantine(ctx context.Context, key string) (newKey string, err error)
+
+	// Delete removes the bytes at the given key. Idempotent — deleting a
+	// missing key returns nil (no ErrNotFound). Used by GDPR erasure.
+	Delete(ctx context.Context, key string) error
 }

@@ -255,6 +255,60 @@ func TestRecordLLMJudgment_RejectsWhenNotScored(t *testing.T) {
 	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
 }
 
+func TestRecordLLMJudgment_FromShortlisted_NilJudgment_Succeeds(t *testing.T) {
+	app := shortlistedApp(t)
+	j := vo.LLMJudgment{Score: 65, Summary: "solid", PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusShortlisted, app.Status(), "status must remain Shortlisted")
+	require.NotNil(t, app.LLMJudgment())
+	require.NotNil(t, app.OverallScore())
+	assert.InDelta(t, 65.0, *app.OverallScore(), 1e-9)
+	assert.Empty(t, app.PullEvents(), "RecordLLMJudgment must not emit events")
+}
+
+func TestRecordLLMJudgment_FromInterviewing_NilJudgment_Succeeds(t *testing.T) {
+	app := interviewingApp(t)
+	j := vo.LLMJudgment{Score: 78, Summary: "strong", PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusInterviewing, app.Status(), "status must remain Interviewing")
+	require.NotNil(t, app.LLMJudgment())
+	require.NotNil(t, app.OverallScore())
+	assert.InDelta(t, 78.0, *app.OverallScore(), 1e-9)
+	assert.Empty(t, app.PullEvents(), "RecordLLMJudgment must not emit events")
+}
+
+func TestRecordLLMJudgment_FromShortlisted_ExistingJudgment_ReturnsError(t *testing.T) {
+	app := shortlistedApp(t)
+	// Rehydrate with an existing judgment to simulate post-scoring state
+	j1 := vo.LLMJudgment{Score: 70, PromptVersion: "v1"}
+	require.NoError(t, app.RecordLLMJudgment(j1))
+
+	j2 := vo.LLMJudgment{Score: 80, PromptVersion: "v2"}
+	err := app.RecordLLMJudgment(j2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already recorded")
+}
+
+func TestRecordLLMJudgment_FromHired_ReturnsErrInvalidTransition(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Hire(uuid.New()))
+	_ = app.PullEvents()
+	j := vo.LLMJudgment{Score: 80, PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestRecordLLMJudgment_FromRejected_ReturnsErrInvalidTransition(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Reject(uuid.New(), "not a fit"))
+	_ = app.PullEvents()
+	j := vo.LLMJudgment{Score: 80, PromptVersion: "v1"}
+	err := app.RecordLLMJudgment(j)
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
 // ── MarkJudgeFailed ───────────────────────────────────────────────────────────
 
 func TestMarkJudgeFailed_FromScored_EmitsEvent(t *testing.T) {
@@ -306,13 +360,6 @@ func TestMarkEmbedFailed_RejectsWhenNotNew(t *testing.T) {
 
 // ── MarkStale ─────────────────────────────────────────────────────────────────
 
-func TestMarkStale_FromNew(t *testing.T) {
-	app, _ := entities.NewApplication(validAppInput(t))
-	err := app.MarkStale()
-	require.NoError(t, err)
-	assert.Equal(t, vo.AppStatusStale, app.Status())
-}
-
 func TestMarkStale_FromScored(t *testing.T) {
 	app, _ := entities.NewApplication(validAppInput(t))
 	_ = app.RecordRuleMatch(passedRuleMatch())
@@ -325,7 +372,41 @@ func TestMarkStale_FromScored(t *testing.T) {
 	assert.Equal(t, vo.AppStatusStale, app.Status())
 }
 
-func TestMarkStale_RejectsFromTerminal(t *testing.T) {
+func TestMarkStale_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromShortlisted(t *testing.T) {
+	app := shortlistedApp(t)
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromInterviewing(t *testing.T) {
+	app := interviewingApp(t)
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromRejected(t *testing.T) {
+	app := scoredApp(t)
+	_ = app.Reject(uuid.New(), "not a fit")
+	_ = app.PullEvents()
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromHired(t *testing.T) {
+	app := scoredApp(t)
+	_ = app.Hire(uuid.New())
+	_ = app.PullEvents()
+	err := app.MarkStale()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMarkStale_RejectsFromExcluded(t *testing.T) {
 	app, _ := entities.NewApplication(validAppInput(t))
 	_ = app.Exclude("reasons")
 	_ = app.PullEvents()
@@ -344,6 +425,258 @@ func TestScheduleRetry_BumpsAttemptCount(t *testing.T) {
 	assert.Equal(t, "transient error", app.LastError())
 	assert.Equal(t, now.Add(5*time.Second), app.NextAttemptAt())
 	assert.Equal(t, vo.AppStatusNew, app.Status(), "ScheduleRetry must not change status")
+}
+
+// scoredApp builds an Application in Scored status and drains pending events.
+func scoredApp(t *testing.T) *entities.Application {
+	t.Helper()
+	app, err := entities.NewApplication(validAppInput(t))
+	require.NoError(t, err)
+	require.NoError(t, app.RecordRuleMatch(passedRuleMatch()))
+	require.NoError(t, app.RecordEmbeddingScore(0.75))
+	score := 80.0
+	require.NoError(t, app.MarkScored(&score))
+	_ = app.PullEvents()
+	return app
+}
+
+// shortlistedApp builds an Application in Shortlisted status and drains pending events.
+func shortlistedApp(t *testing.T) *entities.Application {
+	t.Helper()
+	actor := uuid.New()
+	app := scoredApp(t)
+	require.NoError(t, app.Shortlist(actor))
+	_ = app.PullEvents()
+	return app
+}
+
+// interviewingApp builds an Application in Interviewing status and drains pending events.
+func interviewingApp(t *testing.T) *entities.Application {
+	t.Helper()
+	actor := uuid.New()
+	app := shortlistedApp(t)
+	require.NoError(t, app.MoveToInterviewing(actor))
+	_ = app.PullEvents()
+	return app
+}
+
+// ── Shortlist ─────────────────────────────────────────────────────────────────
+
+func TestShortlist_FromScored_EmitsEvent(t *testing.T) {
+	app := scoredApp(t)
+	actor := uuid.New()
+
+	err := app.Shortlist(actor)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusShortlisted, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationShortlisted)
+	require.True(t, ok)
+	assert.Equal(t, app.ID(), ev.ApplicationID)
+	assert.Equal(t, app.CandidateID(), ev.CandidateID)
+	assert.Equal(t, app.IntentID(), ev.IntentID)
+	assert.Equal(t, app.TenantID(), ev.TenantID)
+	assert.Equal(t, actor, ev.ActorUserID)
+	assert.False(t, ev.OccurredAt.IsZero())
+}
+
+func TestShortlist_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.Shortlist(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestShortlist_RejectsFromHired(t *testing.T) {
+	app := scoredApp(t)
+	actor := uuid.New()
+	require.NoError(t, app.Hire(actor))
+	_ = app.PullEvents()
+	err := app.Shortlist(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+// ── Reject ────────────────────────────────────────────────────────────────────
+
+func TestReject_FromScored_EmitsEvent(t *testing.T) {
+	app := scoredApp(t)
+	actor := uuid.New()
+
+	err := app.Reject(actor, "not a good fit")
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusRejected, app.Status())
+	assert.Equal(t, "not a good fit", app.LastError())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationRejected)
+	require.True(t, ok)
+	assert.Equal(t, app.ID(), ev.ApplicationID)
+	assert.Equal(t, actor, ev.ActorUserID)
+	assert.Equal(t, "not a good fit", ev.Reason)
+}
+
+func TestReject_FromShortlisted_EmitsEvent(t *testing.T) {
+	app := shortlistedApp(t)
+	actor := uuid.New()
+
+	err := app.Reject(actor, "skills gap")
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusRejected, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationRejected)
+	require.True(t, ok)
+	assert.Equal(t, "skills gap", ev.Reason)
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestReject_FromInterviewing_EmitsEvent(t *testing.T) {
+	app := interviewingApp(t)
+	actor := uuid.New()
+
+	err := app.Reject(actor, "interview went poorly")
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusRejected, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationRejected)
+	require.True(t, ok)
+	assert.Equal(t, "interview went poorly", ev.Reason)
+}
+
+func TestReject_EmptyReason_ReturnsError(t *testing.T) {
+	app := scoredApp(t)
+	err := app.Reject(uuid.New(), "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reason required")
+}
+
+func TestReject_WhitespaceOnlyReason_ReturnsError(t *testing.T) {
+	app := scoredApp(t)
+	err := app.Reject(uuid.New(), "   ")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reason required")
+}
+
+func TestReject_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.Reject(uuid.New(), "some reason")
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestReject_RejectsFromHired(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Hire(uuid.New()))
+	_ = app.PullEvents()
+	err := app.Reject(uuid.New(), "too late")
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+// ── Hire ──────────────────────────────────────────────────────────────────────
+
+func TestHire_FromScored_EmitsEvent(t *testing.T) {
+	app := scoredApp(t)
+	actor := uuid.New()
+
+	err := app.Hire(actor)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusHired, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationHired)
+	require.True(t, ok)
+	assert.Equal(t, app.ID(), ev.ApplicationID)
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestHire_FromShortlisted_EmitsEvent(t *testing.T) {
+	app := shortlistedApp(t)
+	actor := uuid.New()
+
+	err := app.Hire(actor)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusHired, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationHired)
+	require.True(t, ok)
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestHire_FromInterviewing_EmitsEvent(t *testing.T) {
+	app := interviewingApp(t)
+	actor := uuid.New()
+
+	err := app.Hire(actor)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusHired, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	_, ok := evs[0].(events.ApplicationHired)
+	require.True(t, ok)
+}
+
+func TestHire_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.Hire(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestHire_RejectsFromRejected(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Reject(uuid.New(), "reason"))
+	_ = app.PullEvents()
+	err := app.Hire(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+// ── MoveToInterviewing ────────────────────────────────────────────────────────
+
+func TestMoveToInterviewing_FromShortlisted_EmitsEvent(t *testing.T) {
+	app := shortlistedApp(t)
+	actor := uuid.New()
+
+	err := app.MoveToInterviewing(actor)
+	require.NoError(t, err)
+	assert.Equal(t, vo.AppStatusInterviewing, app.Status())
+
+	evs := app.PullEvents()
+	require.Len(t, evs, 1)
+	ev, ok := evs[0].(events.ApplicationMovedToInterviewing)
+	require.True(t, ok)
+	assert.Equal(t, app.ID(), ev.ApplicationID)
+	assert.Equal(t, app.CandidateID(), ev.CandidateID)
+	assert.Equal(t, app.IntentID(), ev.IntentID)
+	assert.Equal(t, app.TenantID(), ev.TenantID)
+	assert.Equal(t, actor, ev.ActorUserID)
+	assert.False(t, ev.OccurredAt.IsZero())
+}
+
+func TestMoveToInterviewing_RejectsFromNew(t *testing.T) {
+	app, _ := entities.NewApplication(validAppInput(t))
+	err := app.MoveToInterviewing(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMoveToInterviewing_RejectsFromScored(t *testing.T) {
+	app := scoredApp(t)
+	err := app.MoveToInterviewing(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestMoveToInterviewing_RejectsFromHired(t *testing.T) {
+	app := scoredApp(t)
+	require.NoError(t, app.Hire(uuid.New()))
+	_ = app.PullEvents()
+	err := app.MoveToInterviewing(uuid.New())
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
 }
 
 // ── RehydrateApplication ──────────────────────────────────────────────────────

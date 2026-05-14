@@ -190,6 +190,70 @@ func TestApplicationClaimNextNew_ReturnsNewRowOldestFirst(t *testing.T) {
 	assert.Equal(t, aEarly.ID(), claimed.ID(), "earliest next_attempt_at must be claimed first")
 }
 
+// TestApplicationInvalidateJudgments_NullsThreeFields seeds two applications for
+// the same tenant — one for the target intent and one for a different intent —
+// then calls InvalidateJudgmentsForIntent and asserts:
+//  1. The three LLM fields (llm_judgment, overall_score, score_band) are NULL
+//     for the target application.
+//  2. The bystander application (different intent_id) is left untouched.
+//  3. No other columns (status, embedding_score, rule_match) are modified.
+func TestApplicationInvalidateJudgments_NullsThreeFields(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresApplicationRepository(pool)
+	tenant := shared.NewTenantID()
+	targetIntentID := uuid.New()
+	otherIntentID := uuid.New()
+
+	// Build and fully score the target application.
+	target := newApplication(t, tenant, targetIntentID)
+	recordFullScore(t, target, 0.75)
+	require.NoError(t, repo.Save(context.Background(), target))
+
+	// Build and fully score the bystander application.
+	bystander := newApplication(t, tenant, otherIntentID)
+	recordFullScore(t, bystander, 0.65)
+	require.NoError(t, repo.Save(context.Background(), bystander))
+
+	// Verify both apps have overall_score populated before the call.
+	targetBefore, err := repo.FindByID(context.Background(), tenant, target.ID())
+	require.NoError(t, err)
+	require.NotNil(t, targetBefore.OverallScore(), "target should have overall_score before invalidation")
+
+	bystanderBefore, err := repo.FindByID(context.Background(), tenant, bystander.ID())
+	require.NoError(t, err)
+	require.NotNil(t, bystanderBefore.OverallScore(), "bystander should have overall_score before invalidation")
+
+	// Invalidate only the target intent.
+	require.NoError(t, repo.InvalidateJudgmentsForIntent(context.Background(), tenant, targetIntentID))
+
+	// Assert target's three fields are now NULL.
+	var overallScore *float64
+	var scoreBand *string
+	var llmJudgment *string
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT overall_score, score_band, llm_judgment::text
+		   FROM applications
+		  WHERE tenant_id=$1 AND id=$2`,
+		tenant.String(), target.ID(),
+	).Scan(&overallScore, &scoreBand, &llmJudgment))
+	assert.Nil(t, overallScore, "overall_score must be NULL after invalidation")
+	assert.Nil(t, scoreBand, "score_band must be NULL after invalidation")
+	assert.Nil(t, llmJudgment, "llm_judgment must be NULL after invalidation")
+
+	// Assert target's status and embedding_score are unchanged.
+	targetAfter, err := repo.FindByID(context.Background(), tenant, target.ID())
+	require.NoError(t, err)
+	assert.Equal(t, targetBefore.Status(), targetAfter.Status(), "status must not change")
+	require.NotNil(t, targetAfter.EmbeddingScore(), "embedding_score must survive invalidation")
+	assert.InDelta(t, 0.75, *targetAfter.EmbeddingScore(), 1e-4)
+
+	// Assert bystander is untouched.
+	bystanderAfter, err := repo.FindByID(context.Background(), tenant, bystander.ID())
+	require.NoError(t, err)
+	require.NotNil(t, bystanderAfter.OverallScore(), "bystander overall_score must survive")
+	assert.Equal(t, bystanderBefore.Status(), bystanderAfter.Status())
+}
+
 // TestApplicationTopByCoarseScore_OrdersCorrectly inserts three scored applications
 // with different embedding scores and verifies top-2 are returned in correct order.
 func TestApplicationTopByCoarseScore_OrdersCorrectly(t *testing.T) {

@@ -7,6 +7,7 @@ MIGRATE_AUTH      := migrate -path migrations/auth         -database "$(DATABASE
 MIGRATE_INTENT    := migrate -path migrations/hiringintent -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_hiringintent"
 MIGRATE_POSTING   := migrate -path migrations/jobposting   -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_jobposting"
 MIGRATE_SOURCING  := migrate -path migrations/sourcing     -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_sourcing"
+MIGRATE_SHARED    := migrate -path migrations/shared      -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_shared"
 
 tidy:
 	go mod tidy
@@ -36,8 +37,10 @@ migrate-up:
 	$(MIGRATE_INTENT) up
 	$(MIGRATE_POSTING) up
 	$(MIGRATE_SOURCING) up
+	$(MIGRATE_SHARED) up
 
 migrate-down:
+	$(MIGRATE_SHARED) down 1
 	$(MIGRATE_SOURCING) down 1
 	$(MIGRATE_POSTING) down 1
 	$(MIGRATE_INTENT) down 1

@@ -149,7 +149,7 @@ func (u *ResumeUpload) CompleteExtracted() error {
 	}
 	_, pages, _ := u.artifacts.ExtractedText()
 	u.emit(events.ResumeExtracted{
-		UploadID: u.id, TenantID: u.tenantID, PageCount: pages, OccurredAt: u.updatedAt,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID, PageCount: pages, OccurredAt: u.updatedAt,
 	})
 	return nil
 }
@@ -163,7 +163,7 @@ func (u *ResumeUpload) Quarantine(signature string) error {
 	u.lastError = signature
 	u.touch()
 	u.emit(events.ResumeUploadFailed{
-		UploadID: u.id, TenantID: u.tenantID,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID,
 		Reason: "virus_detected", Detail: signature, OccurredAt: u.updatedAt,
 	})
 	return nil
@@ -178,7 +178,7 @@ func (u *ResumeUpload) MarkFailed(d vo.RetryDecision) error {
 	u.lastError = d.Detail
 	u.touch()
 	u.emit(events.ResumeUploadFailed{
-		UploadID: u.id, TenantID: u.tenantID,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID,
 		Reason: d.Reason, Detail: d.Detail, OccurredAt: u.updatedAt,
 	})
 	return nil
@@ -216,6 +216,22 @@ func (u *ResumeUpload) transition(next vo.UploadStatus, errDetail string) error 
 }
 
 func (u *ResumeUpload) touch() { u.updatedAt = time.Now().UTC() }
+
+// ResetForRetry resets a Failed or Quarantined upload back to Pending so the
+// worker pool will re-process it. It deliberately bypasses CanTransitionTo
+// because both Failed and Quarantined are terminal states — this is the rescue
+// path that an operator explicitly requests.
+func (u *ResumeUpload) ResetForRetry() error {
+	if u.status != vo.StatusFailed && u.status != vo.StatusQuarantined {
+		return ErrInvalidTransition
+	}
+	u.status = vo.StatusPending
+	u.attemptCount = 0
+	u.lastError = ""
+	u.nextAttemptAt = time.Now().UTC()
+	u.touch()
+	return nil
+}
 
 // BeginParsing transitions Extracted → Parsing.
 func (u *ResumeUpload) BeginParsing() error {
@@ -258,6 +274,7 @@ func (u *ResumeUpload) CompleteParsed() error {
 	u.emit(events.ResumeParsed{
 		UploadID:    u.id,
 		TenantID:    u.tenantID,
+		BatchID:     u.batchID,
 		CandidateID: u.candidateID,
 		OccurredAt:  u.updatedAt,
 	})

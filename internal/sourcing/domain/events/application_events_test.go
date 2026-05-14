@@ -212,3 +212,241 @@ func TestApplicationJudgeFailed_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, original.Reason, decoded.Reason)
 	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
 }
+
+// ── ApplicationShortlisted ────────────────────────────────────────────────────
+
+func TestApplicationShortlisted_Shape(t *testing.T) {
+	appID := uuid.New()
+	actor := uuid.New()
+	tenant := shared.NewTenantID()
+	at := time.Now().UTC().Truncate(time.Millisecond)
+
+	ev := events.ApplicationShortlisted{
+		ApplicationID: appID,
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      tenant,
+		ActorUserID:   actor,
+		OccurredAt:    at,
+	}
+
+	assert.Equal(t, "sourcing.ApplicationShortlisted", ev.EventName())
+	assert.Equal(t, appID, ev.AggregateID())
+	assert.Equal(t, tenant, ev.Tenant())
+	assert.Equal(t, at, ev.At())
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestApplicationShortlisted_JSONRoundTrip(t *testing.T) {
+	original := events.ApplicationShortlisted{
+		ApplicationID: uuid.New(),
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      shared.NewTenantID(),
+		ActorUserID:   uuid.New(),
+		OccurredAt:    time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	b, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded events.ApplicationShortlisted
+	require.NoError(t, json.Unmarshal(b, &decoded))
+
+	assert.Equal(t, original.ApplicationID, decoded.ApplicationID)
+	assert.Equal(t, original.CandidateID, decoded.CandidateID)
+	assert.Equal(t, original.IntentID, decoded.IntentID)
+	assert.Equal(t, original.TenantID, decoded.TenantID)
+	assert.Equal(t, original.ActorUserID, decoded.ActorUserID)
+	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
+}
+
+// ── ApplicationRejected ───────────────────────────────────────────────────────
+
+func TestApplicationRejected_Shape(t *testing.T) {
+	appID := uuid.New()
+	actor := uuid.New()
+	tenant := shared.NewTenantID()
+	at := time.Now().UTC().Truncate(time.Millisecond)
+
+	ev := events.ApplicationRejected{
+		ApplicationID: appID,
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      tenant,
+		ActorUserID:   actor,
+		Reason:        "not qualified",
+		OccurredAt:    at,
+	}
+
+	assert.Equal(t, "sourcing.ApplicationRejected", ev.EventName())
+	assert.Equal(t, appID, ev.AggregateID())
+	assert.Equal(t, tenant, ev.Tenant())
+	assert.Equal(t, at, ev.At())
+	assert.Equal(t, actor, ev.ActorUserID)
+	assert.Equal(t, "not qualified", ev.Reason)
+}
+
+func TestApplicationRejected_JSONRoundTrip(t *testing.T) {
+	original := events.ApplicationRejected{
+		ApplicationID: uuid.New(),
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      shared.NewTenantID(),
+		ActorUserID:   uuid.New(),
+		Reason:        "does not meet requirements",
+		OccurredAt:    time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	b, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded events.ApplicationRejected
+	require.NoError(t, json.Unmarshal(b, &decoded))
+
+	assert.Equal(t, original.ApplicationID, decoded.ApplicationID)
+	assert.Equal(t, original.CandidateID, decoded.CandidateID)
+	assert.Equal(t, original.IntentID, decoded.IntentID)
+	assert.Equal(t, original.TenantID, decoded.TenantID)
+	assert.Equal(t, original.ActorUserID, decoded.ActorUserID)
+	assert.Equal(t, original.Reason, decoded.Reason)
+	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
+}
+
+// ── ApplicationHired ──────────────────────────────────────────────────────────
+
+func TestApplicationHired_Shape(t *testing.T) {
+	appID := uuid.New()
+	actor := uuid.New()
+	tenant := shared.NewTenantID()
+	at := time.Now().UTC().Truncate(time.Millisecond)
+
+	ev := events.ApplicationHired{
+		ApplicationID: appID,
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      tenant,
+		ActorUserID:   actor,
+		OccurredAt:    at,
+	}
+
+	assert.Equal(t, "sourcing.ApplicationHired", ev.EventName())
+	assert.Equal(t, appID, ev.AggregateID())
+	assert.Equal(t, tenant, ev.Tenant())
+	assert.Equal(t, at, ev.At())
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestApplicationHired_JSONRoundTrip(t *testing.T) {
+	original := events.ApplicationHired{
+		ApplicationID: uuid.New(),
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      shared.NewTenantID(),
+		ActorUserID:   uuid.New(),
+		OccurredAt:    time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	b, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded events.ApplicationHired
+	require.NoError(t, json.Unmarshal(b, &decoded))
+
+	assert.Equal(t, original.ApplicationID, decoded.ApplicationID)
+	assert.Equal(t, original.CandidateID, decoded.CandidateID)
+	assert.Equal(t, original.IntentID, decoded.IntentID)
+	assert.Equal(t, original.TenantID, decoded.TenantID)
+	assert.Equal(t, original.ActorUserID, decoded.ActorUserID)
+	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
+}
+
+// ── ApplicationMovedToInterviewing ────────────────────────────────────────────
+
+func TestApplicationMovedToInterviewing_Shape(t *testing.T) {
+	appID := uuid.New()
+	actor := uuid.New()
+	tenant := shared.NewTenantID()
+	at := time.Now().UTC().Truncate(time.Millisecond)
+
+	ev := events.ApplicationMovedToInterviewing{
+		ApplicationID: appID,
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      tenant,
+		ActorUserID:   actor,
+		OccurredAt:    at,
+	}
+
+	assert.Equal(t, "sourcing.ApplicationMovedToInterviewing", ev.EventName())
+	assert.Equal(t, appID, ev.AggregateID())
+	assert.Equal(t, tenant, ev.Tenant())
+	assert.Equal(t, at, ev.At())
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestApplicationMovedToInterviewing_JSONRoundTrip(t *testing.T) {
+	original := events.ApplicationMovedToInterviewing{
+		ApplicationID: uuid.New(),
+		CandidateID:   uuid.New(),
+		IntentID:      uuid.New(),
+		TenantID:      shared.NewTenantID(),
+		ActorUserID:   uuid.New(),
+		OccurredAt:    time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	b, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded events.ApplicationMovedToInterviewing
+	require.NoError(t, json.Unmarshal(b, &decoded))
+
+	assert.Equal(t, original.ApplicationID, decoded.ApplicationID)
+	assert.Equal(t, original.CandidateID, decoded.CandidateID)
+	assert.Equal(t, original.IntentID, decoded.IntentID)
+	assert.Equal(t, original.TenantID, decoded.TenantID)
+	assert.Equal(t, original.ActorUserID, decoded.ActorUserID)
+	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
+}
+
+// ── CandidateErased ───────────────────────────────────────────────────────────
+
+func TestCandidateErased_Shape(t *testing.T) {
+	candidateID := uuid.New()
+	actor := uuid.New()
+	tenant := shared.NewTenantID()
+	at := time.Now().UTC().Truncate(time.Millisecond)
+
+	ev := events.CandidateErased{
+		CandidateID: candidateID,
+		TenantID:    tenant,
+		ActorUserID: actor,
+		OccurredAt:  at,
+	}
+
+	assert.Equal(t, "sourcing.CandidateErased", ev.EventName())
+	assert.Equal(t, candidateID, ev.AggregateID())
+	assert.Equal(t, tenant, ev.Tenant())
+	assert.Equal(t, at, ev.At())
+	assert.Equal(t, actor, ev.ActorUserID)
+}
+
+func TestCandidateErased_JSONRoundTrip(t *testing.T) {
+	original := events.CandidateErased{
+		CandidateID: uuid.New(),
+		TenantID:    shared.NewTenantID(),
+		ActorUserID: uuid.New(),
+		OccurredAt:  time.Now().UTC().Truncate(time.Millisecond),
+	}
+
+	b, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded events.CandidateErased
+	require.NoError(t, json.Unmarshal(b, &decoded))
+
+	assert.Equal(t, original.CandidateID, decoded.CandidateID)
+	assert.Equal(t, original.TenantID, decoded.TenantID)
+	assert.Equal(t, original.ActorUserID, decoded.ActorUserID)
+	assert.Equal(t, original.OccurredAt, decoded.OccurredAt)
+}

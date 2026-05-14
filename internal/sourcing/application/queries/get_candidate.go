@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
+	auditdomain "github.com/hustle/hireflow/internal/shared/audit/domain"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
@@ -17,16 +19,19 @@ import (
 type GetCandidateHandler struct {
 	repo      repositories.CandidateRepository
 	encryptor services.PIIEncryptor
+	audit     auditdomain.AuditWriter
 }
 
 // NewGetCandidateHandler wires the handler.
-func NewGetCandidateHandler(repo repositories.CandidateRepository, encryptor services.PIIEncryptor) *GetCandidateHandler {
-	return &GetCandidateHandler{repo: repo, encryptor: encryptor}
+func NewGetCandidateHandler(repo repositories.CandidateRepository, encryptor services.PIIEncryptor, audit auditdomain.AuditWriter) *GetCandidateHandler {
+	return &GetCandidateHandler{repo: repo, encryptor: encryptor, audit: audit}
 }
 
 // Handle returns the candidate detail. Returns repositories.ErrCandidateNotFound
 // when no matching row exists. Decryption errors propagate.
-func (h *GetCandidateHandler) Handle(ctx context.Context, tenant shared.TenantID, id uuid.UUID) (dto.CandidateDetailDTO, error) {
+// actorUserID is the recruiter performing the read and is used for audit logging.
+// The audit write is load-bearing: if it fails the PII is NOT returned to the caller.
+func (h *GetCandidateHandler) Handle(ctx context.Context, tenant shared.TenantID, actorUserID uuid.UUID, id uuid.UUID) (dto.CandidateDetailDTO, error) {
 	c, err := h.repo.FindByID(ctx, tenant, id)
 	if err != nil {
 		return dto.CandidateDetailDTO{}, err
@@ -56,7 +61,7 @@ func (h *GetCandidateHandler) Handle(ctx context.Context, tenant shared.TenantID
 		return dto.CandidateDetailDTO{}, fmt.Errorf("marshal profile: %w", err)
 	}
 
-	return dto.CandidateDetailDTO{
+	out := dto.CandidateDetailDTO{
 		ID:          c.ID(),
 		ContentHash: c.ContentHash().String(),
 		Personal: dto.CandidatePersonal{
@@ -67,5 +72,21 @@ func (h *GetCandidateHandler) Handle(ctx context.Context, tenant shared.TenantID
 		Profile:   profileBytes,
 		Source:    c.Source(),
 		CreatedAt: c.CreatedAt(),
-	}, nil
+	}
+
+	// Audit AFTER the read returns successfully. Failed reads (404, decrypt errors)
+	// are not audited. Audit failure is load-bearing: don't return PII to a caller
+	// we couldn't audit.
+	if err := h.audit.Write(ctx, auditdomain.AuditEvent{
+		ActorUserID:  actorUserID,
+		TenantID:     tenant,
+		Action:       "candidate_read",
+		ResourceKind: "candidate",
+		ResourceID:   id,
+		OccurredAt:   time.Now().UTC(),
+	}); err != nil {
+		return dto.CandidateDetailDTO{}, fmt.Errorf("audit candidate read: %w", err)
+	}
+
+	return out, nil
 }

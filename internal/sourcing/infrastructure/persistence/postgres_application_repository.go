@@ -234,6 +234,32 @@ func (r *PostgresApplicationRepository) TopByCoarseScoreForIntent(ctx context.Co
 	return out, rows.Err()
 }
 
+// InvalidateJudgmentsForIntent nulls out llm_judgment, overall_score, and
+// score_band for all applications that belong to the given (tenant, intent)
+// pair. The UPDATE is idempotent and parameterized — it is safe to call
+// multiple times.
+//
+// NOTE: status, embedding_score, rule_match, and all other columns are NOT
+// touched. After invalidation the judge worker re-populates the three nulled
+// fields; the match worker is not involved in rescore because embedding_score
+// is still present.
+func (r *PostgresApplicationRepository) InvalidateJudgmentsForIntent(ctx context.Context, tenant shared.TenantID, intentID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE applications
+		   SET llm_judgment  = NULL,
+		       overall_score = NULL,
+		       score_band    = NULL,
+		       updated_at    = now()
+		 WHERE tenant_id = $1
+		   AND intent_id = $2`,
+		tenant.String(), intentID,
+	)
+	if err != nil {
+		return fmt.Errorf("invalidate judgments: %w", err)
+	}
+	return nil
+}
+
 func scanApplication(rs rowScanner) (*entities.Application, error) {
 	var row applicationRow
 	err := rs.Scan(

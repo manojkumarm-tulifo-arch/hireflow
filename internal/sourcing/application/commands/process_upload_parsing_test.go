@@ -96,6 +96,9 @@ func (r *fakeCandidateRepo) ListByTenant(_ context.Context, _ shared.TenantID) (
 func (r *fakeCandidateRepo) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
 }
+func (r *fakeCandidateRepo) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

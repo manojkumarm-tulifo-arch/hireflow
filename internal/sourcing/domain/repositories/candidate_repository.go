@@ -38,4 +38,11 @@ type CandidateRepository interface {
 	// given candidate. Called by ScoreApplicationHandler after the first embed
 	// so subsequent scoring passes skip the Voyage API call.
 	UpdateProfileEmbedding(ctx context.Context, candidateID uuid.UUID, tenant shared.TenantID, vector []float32) error
+
+	// EraseCascade transactionally deletes the candidate, its applications,
+	// associated judge_jobs, resume_uploads, and resume_uploads_dedup rows.
+	// Returns the storage keys of deleted resume_uploads so the caller can
+	// best-effort delete the blob storage outside the tx.
+	// Returns ErrCandidateNotFound if the candidate does not exist.
+	EraseCascade(ctx context.Context, tenant shared.TenantID, candidateID uuid.UUID) (storageKeys []string, err error)
 }

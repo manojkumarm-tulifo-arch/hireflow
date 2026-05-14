@@ -81,6 +81,10 @@ func (r *appRepoStub) TopByCoarseScoreForIntent(_ context.Context, _ shared.Tena
 	return nil, nil
 }
 
+func (r *appRepoStub) InvalidateJudgmentsForIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID) error {
+	return nil
+}
+
 func (r *appRepoStub) savedCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -108,6 +112,9 @@ func (c *candidateRepoStub) ListByTenant(_ context.Context, _ shared.TenantID) (
 
 func (c *candidateRepoStub) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
+}
+func (c *candidateRepoStub) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
 }
 
 // judgeJobRepoStub accepts saves without storing.

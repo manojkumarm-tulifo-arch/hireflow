@@ -14,9 +14,9 @@ import (
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
+	sourcingevents "github.com/hustle/hireflow/internal/sourcing/domain/events"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	"github.com/hustle/hireflow/internal/sourcing/domain/services"
-	sourcingevents "github.com/hustle/hireflow/internal/sourcing/domain/events"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 	"github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 )
@@ -61,6 +61,9 @@ func (r *candidateFinderStub) ListByTenant(_ context.Context, _ shared.TenantID)
 
 func (r *candidateFinderStub) UpdateProfileEmbedding(_ context.Context, _ uuid.UUID, _ shared.TenantID, _ []float32) error {
 	return nil
+}
+func (r *candidateFinderStub) EraseCascade(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]string, error) {
+	return nil, repositories.ErrCandidateNotFound
 }
 
 // makeTestCandidate builds a minimal valid Candidate for use in subscriber tests.

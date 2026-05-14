@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,9 +19,14 @@ import (
 	"github.com/hustle/hireflow/internal/sourcing/application/commands"
 	"github.com/hustle/hireflow/internal/sourcing/application/dto"
 	"github.com/hustle/hireflow/internal/sourcing/application/queries"
+	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
 	"github.com/hustle/hireflow/internal/sourcing/domain/repositories"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
+	"github.com/hustle/hireflow/internal/sourcing/infrastructure/sse"
 )
+
+// defaultHeartbeat is the SSE heartbeat interval used in production.
+const defaultHeartbeat = 30 * time.Second
 
 // SourcingHandler exposes the v1 endpoints of the sourcing context.
 type SourcingHandler struct {
@@ -28,22 +34,46 @@ type SourcingHandler struct {
 	status           *queries.GetBatchStatusHandler
 	candidate        *queries.GetCandidateHandler
 	listApplications *queries.ListApplicationsHandler
+	transition       *commands.TransitionApplicationHandler
+	retryUpload      *commands.RetryResumeUploadHandler
+	rescoreIntent    *commands.RescoreIntentHandler
+	eraseCandidate   *commands.EraseCandidateHandler
+	fanout           *sse.BatchEventFanout
+	heartbeat        time.Duration
 	logger           zerolog.Logger
 }
 
-// NewSourcingHandler wires the handler.
+// NewSourcingHandler wires the handler. The fanout may be nil if the
+// BatchEvents endpoint is not in use (e.g. in tests or before T13 wiring).
+// The heartbeat interval controls how often SSE keep-alive comments are sent;
+// pass 0 to use the default of 30 s.
 func NewSourcingHandler(
 	upload *commands.UploadResumeBatchHandler,
 	status *queries.GetBatchStatusHandler,
 	candidate *queries.GetCandidateHandler,
 	listApplications *queries.ListApplicationsHandler,
+	transition *commands.TransitionApplicationHandler,
+	retryUpload *commands.RetryResumeUploadHandler,
+	rescoreIntent *commands.RescoreIntentHandler,
+	eraseCandidate *commands.EraseCandidateHandler,
+	fanout *sse.BatchEventFanout,
+	heartbeat time.Duration,
 	logger zerolog.Logger,
 ) *SourcingHandler {
+	if heartbeat <= 0 {
+		heartbeat = defaultHeartbeat
+	}
 	return &SourcingHandler{
 		upload:           upload,
 		status:           status,
 		candidate:        candidate,
 		listApplications: listApplications,
+		transition:       transition,
+		retryUpload:      retryUpload,
+		rescoreIntent:    rescoreIntent,
+		eraseCandidate:   eraseCandidate,
+		fanout:           fanout,
+		heartbeat:        heartbeat,
 		logger:           logger,
 	}
 }
@@ -163,7 +193,7 @@ func (h *SourcingHandler) GetCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.candidate.Handle(r.Context(), identity.TenantID, candidateID)
+	out, err := h.candidate.Handle(r.Context(), identity.TenantID, identity.RecruiterID.UUID(), candidateID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrCandidateNotFound) {
 			writeError(w, http.StatusNotFound, "candidate_not_found", "candidate not found")
@@ -311,6 +341,222 @@ func (h *SourcingHandler) ListApplications(w http.ResponseWriter, r *http.Reques
 		resp.Items = []ApplicationListItem{}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// ShortlistApplication handles POST /applications/{application_id}:shortlist.
+func (h *SourcingHandler) ShortlistApplication(w http.ResponseWriter, r *http.Request) {
+	h.transitionApplication(w, r, commands.ActionShortlist, "")
+}
+
+// RejectApplication handles POST /applications/{application_id}:reject.
+func (h *SourcingHandler) RejectApplication(w http.ResponseWriter, r *http.Request) {
+	var body ApplicationRejectRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	if strings.TrimSpace(body.Reason) == "" {
+		writeError(w, http.StatusBadRequest, "reason_required", "reason is required")
+		return
+	}
+	h.transitionApplication(w, r, commands.ActionReject, body.Reason)
+}
+
+// HireApplication handles POST /applications/{application_id}:hire.
+func (h *SourcingHandler) HireApplication(w http.ResponseWriter, r *http.Request) {
+	h.transitionApplication(w, r, commands.ActionHire, "")
+}
+
+// transitionApplication is the shared implementation for shortlist/reject/hire.
+func (h *SourcingHandler) transitionApplication(
+	w http.ResponseWriter,
+	r *http.Request,
+	action commands.ApplicationAction,
+	rejectReason string,
+) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	applicationID, err := uuid.Parse(chi.URLParam(r, "application_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_application_id", "application_id must be a uuid")
+		return
+	}
+
+	handleErr := h.transition.Handle(r.Context(), commands.TransitionApplicationInput{
+		TenantID:      identity.TenantID,
+		ActorUserID:   identity.RecruiterID.UUID(),
+		ApplicationID: applicationID,
+		Action:        action,
+		RejectReason:  rejectReason,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrApplicationNotFound) {
+			writeError(w, http.StatusNotFound, "application_not_found", "application not found")
+			return
+		}
+		if errors.Is(handleErr, entities.ErrInvalidTransition) {
+			writeError(w, http.StatusBadRequest, "invalid_transition", "transition not permitted for current status")
+			return
+		}
+		// "reject: reason required" is already guarded above, but handle defensively.
+		h.logger.Error().Err(handleErr).Str("action", string(action)).Msg("application transition failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RetryUpload handles POST /resumes/{upload_id}:retry.
+func (h *SourcingHandler) RetryUpload(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	uploadID, err := uuid.Parse(chi.URLParam(r, "upload_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_upload_id", "upload_id must be a uuid")
+		return
+	}
+
+	handleErr := h.retryUpload.Handle(r.Context(), commands.RetryResumeUploadInput{
+		TenantID: identity.TenantID,
+		UploadID: uploadID,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload_not_found", "upload not found")
+			return
+		}
+		if errors.Is(handleErr, commands.ErrNotRetryable) {
+			writeError(w, http.StatusBadRequest, "not_retryable", "upload status is not retryable (must be Failed or Quarantined)")
+			return
+		}
+		h.logger.Error().Err(handleErr).Msg("retry upload failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RescoreIntent handles POST /intents/{intent_id}/applications:rescore.
+// It invalidates cached LLM judgments for the intent and re-dispatches
+// ScoreIntent so the judge worker re-scores the top-K applications.
+// Returns 202 Accepted because the actual scoring work happens asynchronously.
+func (h *SourcingHandler) RescoreIntent(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	intentID, err := uuid.Parse(chi.URLParam(r, "intent_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_intent_id", "intent_id must be a uuid")
+		return
+	}
+	handleErr := h.rescoreIntent.Handle(r.Context(), commands.RescoreIntentInput{
+		TenantID:    identity.TenantID,
+		ActorUserID: identity.RecruiterID.UUID(),
+		IntentID:    intentID,
+	})
+	if handleErr != nil {
+		h.logger.Error().Err(handleErr).Msg("rescore intent failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// EraseCandidate handles DELETE /candidates/{candidate_id}.
+// Returns 204 on success, 404 if the candidate is not found.
+func (h *SourcingHandler) EraseCandidate(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	candidateID, err := uuid.Parse(chi.URLParam(r, "candidate_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_candidate_id", "candidate_id must be a uuid")
+		return
+	}
+	handleErr := h.eraseCandidate.Handle(r.Context(), commands.EraseCandidateInput{
+		TenantID:    identity.TenantID,
+		ActorUserID: identity.RecruiterID.UUID(),
+		CandidateID: candidateID,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrCandidateNotFound) {
+			writeError(w, http.StatusNotFound, "candidate_not_found", "candidate not found")
+			return
+		}
+		h.logger.Error().Err(handleErr).Msg("erase candidate failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// BatchEvents handles GET /resumes/batches/{batch_id}/events.
+// It opens a long-lived SSE stream that delivers per-upload progress events
+// for the given batch. A heartbeat comment (":ping\n\n") is sent every
+// h.heartbeat to keep the connection alive through proxies.
+func (h *SourcingHandler) BatchEvents(w http.ResponseWriter, r *http.Request) {
+	_, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+
+	batchID, err := uuid.Parse(chi.URLParam(r, "batch_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_batch_id", "batch_id must be a uuid")
+		return
+	}
+
+	if h.fanout == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_wired", "SSE fanout not configured")
+		return
+	}
+
+	// Set SSE headers before writing any body — must come before WriteHeader.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// ResponseWriter doesn't support streaming (e.g. httptest.NewRecorder).
+		return
+	}
+	// Flush the headers immediately so the client unblocks from Do().
+	flusher.Flush()
+
+	ch, cleanup := h.fanout.Subscribe(batchID)
+	defer cleanup()
+
+	heartbeat := time.NewTicker(h.heartbeat)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			_, _ = io.WriteString(w, ":ping\n\n")
+			flusher.Flush()
+		case payload, ok := <-ch:
+			if !ok {
+				return
+			}
+			_, _ = w.Write(payload)
+			flusher.Flush()
+		}
+	}
 }
 
 // multipartSource adapts multipart.Reader to dto.BatchItemSource.

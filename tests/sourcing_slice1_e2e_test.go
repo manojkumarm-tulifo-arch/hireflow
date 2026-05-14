@@ -51,7 +51,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 	_, err = p.Exec(context.Background(), `
 		TRUNCATE applications, hiring_intent_embeddings, judge_jobs,
 		         resume_uploads, resume_uploads_dedup, candidates,
-		         sourcing_outbox, hiring_intents CASCADE`)
+		         sourcing_outbox, hiring_intents, audit_log CASCADE`)
 	require.NoError(t, err)
 	return p
 }
@@ -114,7 +114,7 @@ func TestSourcingSlice1_E2E_UploadScansExtracts(t *testing.T) {
 		RetryBackoff: []time.Duration{time.Second, 5 * time.Second},
 	})
 	statusH := queries.NewGetBatchStatusHandler(repo)
-	handler := v1.NewSourcingHandler(uploadH, statusH, nil, nil, logger)
+	handler := v1.NewSourcingHandler(uploadH, statusH, nil, nil, nil, nil, nil, nil, nil, 0, logger)
 
 	router := chi.NewRouter()
 	v1.Mount(router, handler)

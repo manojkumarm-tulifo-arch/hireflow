@@ -1,10 +1,12 @@
 # sourcing — bounded context
 
 Recruiters upload resumes against confirmed hiring intents. The context
-parses, dedups, scores, and exposes a recruiter-facing pipeline of applications.
+parses, dedups, scores, exposes a recruiter-facing pipeline of applications,
+and supports full lifecycle actions (shortlist/reject/hire), live SSE progress
+updates, on-demand rescore, and GDPR erasure.
 
 Slices 1+2+3 ship the full ingestion → parsing → matching pipeline.
-Recruiter lifecycle actions (shortlist/reject/hire/rescore) land in slice 4.
+Slice 4 adds the recruiter dashboard actions, SSE, rescore, and erasure.
 
 ## Ubiquitous language
 
@@ -17,6 +19,18 @@ Recruiter lifecycle actions (shortlist/reject/hire/rescore) land in slice 4.
 | **Application** | Match between a `Candidate` and a `HiringIntent`. Holds rule_match, embedding_score, optional LLM judgment, and lifecycle. |
 | **JudgeJob** | Internal queue row driving LLM judging of top-K applications per intent. |
 | **Stage Artifacts** | Per-stage outputs persisted on the upload row so crashes resume from the last successful stage. |
+
+## Ubiquitous language (additions in slice 4)
+
+The table in the previous section now also covers:
+
+| Term | Meaning |
+|---|---|
+| **AuditEvent** | Immutable cross-context record in `audit_log` (shared schema). Written whenever PII is read or an Application lifecycle transition fires. Fields: `id`, `tenant_id`, `actor_id`, `action`, `entity_type`, `entity_id`, `ip_address`, `user_agent`, `occurred_at`. |
+| **Shortlisted** | Application status indicating the recruiter has moved it forward from `Scored`. |
+| **Interviewing** | Application status indicating an interview has been scheduled (set externally or via downstream event). |
+| **Rejected** | Terminal negative lifecycle state. Requires a non-empty `reason`. |
+| **Hired** | Terminal positive lifecycle state. |
 
 ## Pipeline (slices 1+2)
 
@@ -60,7 +74,12 @@ JudgeJob(Pending) ─► JudgePool ─► JudgeApplicationHandler
 ```
 
 Application states: `New`, `Scored`, `Excluded`, `EmbedFailed`, `JudgeFailed`,
-`Stale`. (Slice 4 adds `Shortlisted`/`Rejected`/`Interviewing`/`Hired`.)
+`Stale`, `Shortlisted`, `Rejected`, `Interviewing`, `Hired`.
+
+Allowed transitions (slice 4):
+- `Scored` → `Shortlisted` (recruiter shortlists)
+- `Scored | Shortlisted | Interviewing` → `Rejected` (requires non-empty reason)
+- `Scored | Shortlisted | Interviewing` → `Hired`
 
 The full scoring algorithm — embedding semantics, cosine similarity, coarse-score
 formula, top-K judging, caching, cost shape — is documented in
@@ -96,6 +115,38 @@ GET  /api/v1/intents/{intent_id}/applications      ranked Applications + rule ch
 
 See `docs/api/v1/sourcing.openapi.yaml`.
 
+## Recruiter actions (slice 4)
+
+The following 7 endpoints extend the sourcing API. All require `bearerAuth` (recruiter JWT).
+
+| Endpoint | Method | Status | Semantics |
+|---|---|---|---|
+| `/applications/{application_id}:shortlist` | POST | 204 | Transitions `Scored` → `Shortlisted`. Writes audit log. |
+| `/applications/{application_id}:reject` | POST | 204 | Body: `{"reason":"..."}` (required, non-empty after trim). Transitions `Scored\|Shortlisted\|Interviewing` → `Rejected`. Writes audit log. |
+| `/applications/{application_id}:hire` | POST | 204 | Transitions `Scored\|Shortlisted\|Interviewing` → `Hired`. Writes audit log. |
+| `/resumes/{upload_id}:retry` | POST | 204 | Resets `Failed\|Quarantined` → `Pending` so the upload worker re-claims the row. |
+| `/intents/{intent_id}/applications:rescore` | POST | 202 | Nulls `llm_judgment`/`overall_score`/`score_band` for all the intent's applications, then re-enqueues judge jobs from the coarse-score list. Does not reset status; does not re-embed; does not change `rule_match`. |
+| `/candidates/{candidate_id}` | DELETE | 204 | GDPR erasure: cascade-deletes candidate + applications + judge_jobs + resume_uploads + dedup rows; best-effort blob storage delete; emits `sourcing.CandidateErased` on the outbox. |
+| `/resumes/batches/{batch_id}/events` | GET | 200 (SSE) | `text/event-stream`. `:ping` heartbeat every 30 s. Event types: `item_accepted`, `item_failed`, `item_extracted`, `item_parsed`. Each event carries a JSON payload with `upload_id`, `batch_id`, and event-specific fields. |
+
+### Audit log
+
+Every Application lifecycle transition (shortlist/reject/hire) writes a row to
+the cross-context `audit_log` table (in `migrations/shared/`). Fields include
+`actor_id`, `action`, `entity_type`, `entity_id`, `ip_address`, `user_agent`,
+`occurred_at`. PII-read events (candidate detail) are also audited. The
+`AuditWriter` port has a Postgres adapter (production) and a noop adapter
+(tests).
+
+### SSE live updates
+
+`GET /api/v1/resumes/batches/{batch_id}/events` opens a long-lived
+`text/event-stream` connection. The server-side `BatchEventFanout` component
+maintains a per-batch subscriber list. Upload worker stages emit events which
+fan out to all open SSE connections for that batch. The connection stays alive
+via `:ping` heartbeats every 30 seconds. Clients reconnect on disconnect using
+the standard `EventSource` `retry` field.
+
 ## Architecture invariants
 
 - **Each upload is per-file independent.** A batch is a UI grouping; the pipeline doesn't have batch-level transactions.
@@ -120,3 +171,4 @@ See `docs/api/v1/sourcing.openapi.yaml`.
 - **pgvector backs the cosine search.** `candidates.profile_embedding` and `hiring_intent_embeddings.role_embedding` are `vector(1024)`; `ivfflat` index supports ANN at scale.
 - **Two new worker pools.** `MatchPool` drains `applications WHERE status=New`; `JudgePool` drains `judge_jobs WHERE status IN (Pending, Running)`. Both run alongside the slice-1 upload worker.
 - **Symmetric serialization** of candidate profile and role spec into embedding text — keeps both vectors in the same semantic space (see `scoring.md` §2).
+- **On-demand rescore available.** Recruiter can trigger `POST /intents/{id}/applications:rescore` to re-judge without waiting for a new `IntentConfirmed` event (see §"Recruiter actions (slice 4)" above).

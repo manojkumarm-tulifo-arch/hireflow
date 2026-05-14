@@ -2,6 +2,7 @@ package entities
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -95,25 +96,25 @@ func NewApplication(in NewApplicationInput) (*Application, error) {
 }
 
 // Accessors.
-func (a *Application) ID() uuid.UUID                    { return a.id }
-func (a *Application) TenantID() shared.TenantID        { return a.tenantID }
-func (a *Application) CandidateID() uuid.UUID           { return a.candidateID }
-func (a *Application) IntentID() uuid.UUID              { return a.intentID }
-func (a *Application) IntentSpecVersion() int           { return a.intentSpecVersion }
-func (a *Application) ProfileSchemaVersion() int        { return a.profileSchemaVersion }
-func (a *Application) Status() vo.ApplicationStatus     { return a.status }
-func (a *Application) OverallScore() *float64           { return a.overallScore }
-func (a *Application) ScoreBand() *vo.ScoreBand         { return a.scoreBand }
-func (a *Application) RuleMatch() vo.RuleMatchReport    { return a.ruleMatch }
-func (a *Application) RuleMatchRecorded() bool          { return a.ruleMatchRecorded }
-func (a *Application) EmbeddingScore() *float64         { return a.embeddingScore }
-func (a *Application) LLMJudgment() *vo.LLMJudgment     { return a.llmJudgment }
-func (a *Application) LastError() string                { return a.lastError }
-func (a *Application) AttemptCount() int                { return a.attemptCount }
-func (a *Application) NextAttemptAt() time.Time         { return a.nextAttemptAt }
-func (a *Application) ScoredAt() *time.Time             { return a.scoredAt }
-func (a *Application) CreatedAt() time.Time             { return a.createdAt }
-func (a *Application) UpdatedAt() time.Time             { return a.updatedAt }
+func (a *Application) ID() uuid.UUID                 { return a.id }
+func (a *Application) TenantID() shared.TenantID     { return a.tenantID }
+func (a *Application) CandidateID() uuid.UUID        { return a.candidateID }
+func (a *Application) IntentID() uuid.UUID           { return a.intentID }
+func (a *Application) IntentSpecVersion() int        { return a.intentSpecVersion }
+func (a *Application) ProfileSchemaVersion() int     { return a.profileSchemaVersion }
+func (a *Application) Status() vo.ApplicationStatus  { return a.status }
+func (a *Application) OverallScore() *float64        { return a.overallScore }
+func (a *Application) ScoreBand() *vo.ScoreBand      { return a.scoreBand }
+func (a *Application) RuleMatch() vo.RuleMatchReport { return a.ruleMatch }
+func (a *Application) RuleMatchRecorded() bool       { return a.ruleMatchRecorded }
+func (a *Application) EmbeddingScore() *float64      { return a.embeddingScore }
+func (a *Application) LLMJudgment() *vo.LLMJudgment  { return a.llmJudgment }
+func (a *Application) LastError() string             { return a.lastError }
+func (a *Application) AttemptCount() int             { return a.attemptCount }
+func (a *Application) NextAttemptAt() time.Time      { return a.nextAttemptAt }
+func (a *Application) ScoredAt() *time.Time          { return a.scoredAt }
+func (a *Application) CreatedAt() time.Time          { return a.createdAt }
+func (a *Application) UpdatedAt() time.Time          { return a.updatedAt }
 
 // PullEvents returns and drains the aggregate's pending events.
 func (a *Application) PullEvents() []events.Event {
@@ -237,12 +238,21 @@ func (a *Application) MarkScored(overallScore *float64) error {
 	return nil
 }
 
-// RecordLLMJudgment stores the LLM judgment on a Scored application.
-// Only valid when status == Scored. Updates overall_score and score_band.
-// Does NOT emit a new event — the row is already Scored.
+// RecordLLMJudgment stores the LLM judgment on a post-scoring application.
+// Valid when status is Scored, Shortlisted, or Interviewing — any state where
+// the recruiter's lifecycle decision should be preserved while a fresh judgment
+// is recorded after an invalidate/rescore cycle.
+// Requires llm_judgment to be nil (call rescore first to clear an existing one).
+// Updates overall_score and score_band. Does NOT emit a new event.
 func (a *Application) RecordLLMJudgment(j vo.LLMJudgment) error {
-	if a.status != vo.AppStatusScored {
+	switch a.status {
+	case vo.AppStatusScored, vo.AppStatusShortlisted, vo.AppStatusInterviewing:
+		// ok — these are post-scoring lifecycle states
+	default:
 		return ErrInvalidTransition
+	}
+	if a.llmJudgment != nil {
+		return errors.New("llm_judgment already recorded; call rescore first to clear it")
 	}
 	t := time.Now().UTC()
 	a.llmJudgment = &j
@@ -273,9 +283,10 @@ func (a *Application) MarkJudgeFailed(reason string) error {
 	return nil
 }
 
-// MarkStale transitions any non-terminal status to Stale.
+// MarkStale transitions Scored → Stale.
+// The permitted source states are governed by CanTransitionTo; today only Scored qualifies.
 func (a *Application) MarkStale() error {
-	if a.status.IsTerminal() {
+	if !a.status.CanTransitionTo(vo.AppStatusStale) {
 		return ErrInvalidTransition
 	}
 	t := time.Now().UTC()
@@ -295,6 +306,92 @@ func (a *Application) ScheduleRetry(reason string, now time.Time, schedule []tim
 		a.nextAttemptAt = now.Add(schedule[a.attemptCount-1])
 	}
 	a.updatedAt = now.UTC()
+}
+
+// Shortlist transitions Scored → Shortlisted. Emits ApplicationShortlisted.
+func (a *Application) Shortlist(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusShortlisted) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusShortlisted
+	a.touch(t)
+	a.emit(events.ApplicationShortlisted{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// Reject transitions Scored | Shortlisted | Interviewing → Rejected.
+// reason is required (>=1 char, whitespace-only counts as empty).
+// Emits ApplicationRejected with the reason and actor.
+func (a *Application) Reject(actorUserID uuid.UUID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return errors.New("reject: reason required")
+	}
+	if !a.status.CanTransitionTo(vo.AppStatusRejected) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusRejected
+	a.lastError = reason
+	a.touch(t)
+	a.emit(events.ApplicationRejected{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		Reason:        reason,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// Hire transitions Scored | Shortlisted | Interviewing → Hired.
+// Emits ApplicationHired.
+func (a *Application) Hire(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusHired) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusHired
+	a.touch(t)
+	a.emit(events.ApplicationHired{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
+}
+
+// MoveToInterviewing transitions Shortlisted → Interviewing.
+// Emits ApplicationMovedToInterviewing.
+func (a *Application) MoveToInterviewing(actorUserID uuid.UUID) error {
+	if !a.status.CanTransitionTo(vo.AppStatusInterviewing) {
+		return ErrInvalidTransition
+	}
+	t := time.Now().UTC()
+	a.status = vo.AppStatusInterviewing
+	a.touch(t)
+	a.emit(events.ApplicationMovedToInterviewing{
+		ApplicationID: a.id,
+		CandidateID:   a.candidateID,
+		IntentID:      a.intentID,
+		TenantID:      a.tenantID,
+		ActorUserID:   actorUserID,
+		OccurredAt:    t,
+	})
+	return nil
 }
 
 // RehydrateApplicationInput is for repository reads — bypasses event emission.

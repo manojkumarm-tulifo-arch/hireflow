@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	auditinfra "github.com/hustle/hireflow/internal/shared/audit/infrastructure"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/auth"
 	"github.com/hustle/hireflow/internal/shared/infrastructure/eventbus"
@@ -90,12 +91,12 @@ func TestSourcingSlice2_E2E(t *testing.T) {
 		// hello.pdf extracts to ~"hello world\n" (~12 chars). Set the OCR
 		// threshold below that so the test exercises the text path, not OCR
 		// fallback. Production default is 50.
-		OCRThreshold:  5,
-		RetryBackoff:  []time.Duration{time.Second, 5 * time.Second},
+		OCRThreshold: 5,
+		RetryBackoff: []time.Duration{time.Second, 5 * time.Second},
 	})
 	statusH := queries.NewGetBatchStatusHandler(uploadRepo)
-	candH := queries.NewGetCandidateHandler(candRepo, piiEnc)
-	handler := v1.NewSourcingHandler(uploadH, statusH, candH, nil, logger)
+	candH := queries.NewGetCandidateHandler(candRepo, piiEnc, auditinfra.NewNoopAuditWriter())
+	handler := v1.NewSourcingHandler(uploadH, statusH, candH, nil, nil, nil, nil, nil, nil, 0, logger)
 
 	router := chi.NewRouter()
 	v1.Mount(router, handler)

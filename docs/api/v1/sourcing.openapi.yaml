@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
-  title: hireflow — sourcing (slice 3)
-  version: "1.0.0-slice3"
+  title: hireflow — sourcing (slice 4)
+  version: "1.0.0-slice4"
   description: |
-    Resume ingestion, candidate detail, and ranked Application list endpoints.
-    Slice 3 adds matching/scoring pipeline and the GET /intents/{id}/applications endpoint.
+    Resume ingestion, candidate detail, ranked Application list, and recruiter
+    dashboard endpoints. Slice 4 adds Application lifecycle actions
+    (shortlist/reject/hire), retry for failed uploads, on-demand rescore,
+    GDPR erasure, and SSE live batch progress.
 paths:
   /intents/{intent_id}/resumes:batch:
     post:
@@ -76,6 +78,100 @@ paths:
               schema: { $ref: '#/components/schemas/CandidateDetailResponse' }
         '401': { description: missing identity }
         '404': { description: candidate not found }
+    delete:
+      summary: GDPR erasure — cascade-delete candidate and all related data
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: candidate_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: candidate erased }
+        '401': { description: missing identity }
+        '404': { description: candidate not found }
+  /applications/{application_id}:shortlist:
+    post:
+      summary: Shortlist an application
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: application_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: application shortlisted }
+        '401': { description: missing identity }
+        '404': { description: application not found }
+        '409': { description: invalid state transition }
+  /applications/{application_id}:reject:
+    post:
+      summary: Reject an application
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: application_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplicationRejectRequest' }
+      responses:
+        '204': { description: application rejected }
+        '400': { description: missing or empty reason }
+        '401': { description: missing identity }
+        '404': { description: application not found }
+        '409': { description: invalid state transition }
+  /applications/{application_id}:hire:
+    post:
+      summary: Mark an application as hired
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: application_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: application marked hired }
+        '401': { description: missing identity }
+        '404': { description: application not found }
+        '409': { description: invalid state transition }
+  /resumes/{upload_id}:retry:
+    post:
+      summary: Retry a failed or quarantined resume upload
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: upload_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: upload reset to pending }
+        '401': { description: missing identity }
+        '404': { description: upload not found }
+        '409': { description: upload not in retryable state }
+  /intents/{intent_id}/applications:rescore:
+    post:
+      summary: Trigger on-demand rescore for all applications under an intent
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: intent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: rescore enqueued }
+        '401': { description: missing identity }
+        '404': { description: intent not found }
+  /resumes/batches/{batch_id}/events:
+    get:
+      summary: SSE stream of live batch progress events
+      tags: [recruiter-actions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: batch_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: |
+            Server-sent event stream. Heartbeat `:ping` every 30 s.
+            Event types: item_accepted, item_failed, item_extracted, item_parsed.
+            Each data payload is a JSON object containing upload_id, batch_id,
+            and event-specific fields.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { description: missing identity }
+        '404': { description: batch not found }
 components:
   securitySchemes:
     bearerAuth:
@@ -192,3 +288,13 @@ components:
         strong: { type: integer }
         moderate: { type: integer }
         weak: { type: integer }
+    ApplicationRejectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1 }
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string }
