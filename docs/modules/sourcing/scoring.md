@@ -1,8 +1,9 @@
 # Sourcing — Match Scoring Reference
 
 Detailed reference for how Candidate × Intent scoring works in the `sourcing`
-bounded context. Slice 3 implements stages 0–2; slice 4 layers the recruiter
-lifecycle on top.
+bounded context. Slices 3+4 implement the full pipeline: stages 0–2 (coarse
+scoring) plus the recruiter lifecycle actions, explicit rescore, and GDPR
+erasure.
 
 > **Where this fits:** The scoring story is the architectural choice that lets
 > the platform meet the unit-economics target in the Tulifo pitch. A naive
@@ -274,6 +275,28 @@ any of them and the judge re-runs:
 
 Re-confirming an intent that wasn't actually modified produces no LLM cost.
 
+### Explicit cache invalidation via rescore endpoint
+
+`POST /api/v1/intents/{intent_id}/applications:rescore` (slice 4) provides a
+recruiter-triggered invalidation path. It:
+
+- **Nulls** `llm_judgment`, `overall_score`, and `score_band` for every
+  Application under the intent — forcing fresh LLM judgments on the next judge
+  pass.
+- **Re-enqueues** judge jobs based on the existing `embedding_score` (coarse
+  score order), so re-judging still targets the top-K candidates.
+
+What it does **not** do:
+
+- Does **not** reset `status` — a `Shortlisted` Application stays `Shortlisted`.
+- Does **not** re-embed candidates or the role — embeddings are unaffected.
+- Does **not** recompute `rule_match` — the rule gate result is unchanged.
+
+Use this endpoint when you suspect the judge model has improved since last run,
+when a non-top-K candidate needs a fresh judgment, or after manually adding a
+candidate that wasn't auto-matched. See §6 for the full list of recomputation
+triggers.
+
 ---
 
 ## 6. Score recomputation triggers
@@ -347,12 +370,15 @@ Bounded scope to keep the slice ship-ready:
 - ✅ Judge worker (top-K LLM judging)
 - ✅ `GET /api/v1/intents/{id}/applications` (read-only list)
 
-Not in slice 3 (deferred to slice 4):
-- ❌ `POST .../rescore` endpoint
-- ❌ Application lifecycle actions (`shortlist`/`reject`/`hire`)
-- ❌ Candidate detail at scale (already shipped in slice 2)
-- ❌ SSE for live score updates
-- ❌ Per-tenant scoring config
+Shipped in slice 4 (on top of slice 3):
+- ✅ `POST .../rescore` endpoint (explicit cache invalidation + re-judge)
+- ✅ Application lifecycle actions (`shortlist`/`reject`/`hire`)
+- ✅ SSE for live batch progress updates
+- ✅ GDPR candidate erasure
+- ✅ Audit log for lifecycle transitions and PII reads
+
+Not in v1 (future work):
+- ❌ Per-tenant scoring config (K, coarse-score weights)
 
 ---
 
