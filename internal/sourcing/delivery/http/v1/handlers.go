@@ -505,7 +505,7 @@ func (h *SourcingHandler) EraseCandidate(w http.ResponseWriter, r *http.Request)
 // for the given batch. A heartbeat comment (":ping\n\n") is sent every
 // h.heartbeat to keep the connection alive through proxies.
 func (h *SourcingHandler) BatchEvents(w http.ResponseWriter, r *http.Request) {
-	_, err := auth.IdentityFromContext(r.Context())
+	identity, err := auth.IdentityFromContext(r.Context())
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
 		return
@@ -519,6 +519,19 @@ func (h *SourcingHandler) BatchEvents(w http.ResponseWriter, r *http.Request) {
 
 	if h.fanout == nil {
 		writeError(w, http.StatusServiceUnavailable, "not_wired", "SSE fanout not configured")
+		return
+	}
+
+	// Verify the batch belongs to the caller's tenant before opening the
+	// stream. Returns 404 (not 403) for cross-tenant batches so we don't
+	// leak existence of batches in other tenants.
+	exists, err := h.status.BatchExists(r.Context(), identity.TenantID, batchID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	if !exists {
+		writeError(w, http.StatusNotFound, "batch_not_found", "no batch with that id for this tenant")
 		return
 	}
 

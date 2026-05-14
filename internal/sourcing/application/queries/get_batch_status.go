@@ -22,6 +22,13 @@ func NewGetBatchStatusHandler(repo repositories.ResumeUploadRepository) *GetBatc
 	return &GetBatchStatusHandler{repo: repo}
 }
 
+// BatchExists reports whether the batch belongs to the given tenant. Used by
+// the SSE endpoint to gate access before opening a long-lived stream — a
+// recruiter must not subscribe to another tenant's batch by guessing a UUID.
+func (h *GetBatchStatusHandler) BatchExists(ctx context.Context, tenant shared.TenantID, batchID uuid.UUID) (bool, error) {
+	return h.repo.BatchExistsForTenant(ctx, tenant, batchID)
+}
+
 // Handle returns the BatchStatusDTO for (tenant, batchID).
 func (h *GetBatchStatusHandler) Handle(ctx context.Context, tenant shared.TenantID, batchID uuid.UUID) (dto.BatchStatusDTO, error) {
 	rows, err := h.repo.ListByBatch(ctx, tenant, batchID)

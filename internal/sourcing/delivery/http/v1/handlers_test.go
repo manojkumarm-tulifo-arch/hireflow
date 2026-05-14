@@ -73,6 +73,10 @@ func (r *memRepo) ListByBatch(_ context.Context, _ shared.TenantID, b uuid.UUID)
 	return r.batches[b.String()], nil
 }
 
+func (r *memRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, b uuid.UUID) (bool, error) {
+	return len(r.batches[b.String()]) > 0, nil
+}
+
 type memStorage struct{ puts map[string][]byte }
 
 func newMemStorage() *memStorage { return &memStorage{puts: map[string][]byte{}} }
@@ -1026,6 +1030,9 @@ func (r *retryRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload,
 func (r *retryRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]*entities.ResumeUpload, error) {
 	return nil, nil
 }
+func (r *retryRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, _ uuid.UUID) (bool, error) {
+	return false, nil
+}
 
 // buildRetryUploadHandler creates a SourcingHandler wired with a
 // RetryResumeUploadHandler backed by the given repo.
@@ -1216,8 +1223,10 @@ func TestRescoreIntent_InvalidIntentID_Returns400(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // newSSEHandler builds a SourcingHandler wired with a real BatchEventFanout
-// and a configurable heartbeat interval (for fast testing).
-func newSSEHandler(t *testing.T, heartbeat time.Duration) (*v1.SourcingHandler, *sse.BatchEventFanout) {
+// and a configurable heartbeat interval (for fast testing). Returns the
+// memRepo so tests can register batch_ids they want to be discoverable by
+// the tenant-ownership gate.
+func newSSEHandler(t *testing.T, heartbeat time.Duration) (*v1.SourcingHandler, *sse.BatchEventFanout, *memRepo) {
 	t.Helper()
 	fanout := sse.NewBatchEventFanout(zerolog.Nop())
 	repo := newMemRepo()
@@ -1225,15 +1234,23 @@ func newSSEHandler(t *testing.T, heartbeat time.Duration) (*v1.SourcingHandler, 
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	h := v1.NewSourcingHandler(upload, status, nil, nil, nil, nil, nil, nil, fanout, heartbeat, zerolog.Nop())
-	return h, fanout
+	return h, fanout, repo
+}
+
+// markBatchExists registers a batch_id with the memRepo so BatchExistsForTenant
+// returns true for it. Used by SSE happy-path tests that fire fake events
+// against the fanout without going through the full upload pipeline.
+func (r *memRepo) markBatchExists(batchID uuid.UUID) {
+	r.batches[batchID.String()] = []*entities.ResumeUpload{nil}
 }
 
 func TestBatchEvents_StreamsEvent(t *testing.T) {
 	const timeout = 5 * time.Second
-	h, fanout := newSSEHandler(t, 30*time.Second) // long heartbeat so only real events fire
+	h, fanout, repo := newSSEHandler(t, 30*time.Second) // long heartbeat so only real events fire
 
 	batchID := uuid.New()
 	tenant := shared.NewTenantID()
+	repo.markBatchExists(batchID)
 
 	// Inject identity via middleware since withIdentity only works on
 	// httptest.Request; a real httptest.NewServer needs a middleware approach.
@@ -1305,9 +1322,12 @@ func TestBatchEvents_StreamsEvent(t *testing.T) {
 
 func TestBatchEvents_Heartbeat(t *testing.T) {
 	const heartbeatInterval = 50 * time.Millisecond
-	h, _ := newSSEHandler(t, heartbeatInterval)
+	h, _, repo := newSSEHandler(t, heartbeatInterval)
 
 	tenant := shared.NewTenantID()
+	batchID := uuid.New()
+	repo.markBatchExists(batchID)
+
 	authRouter := chi.NewRouter()
 	authRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1323,7 +1343,6 @@ func TestBatchEvents_Heartbeat(t *testing.T) {
 	srv := httptest.NewServer(authRouter)
 	defer srv.Close()
 
-	batchID := uuid.New()
 	url := srv.URL + "/resumes/batches/" + batchID.String() + "/events"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1364,7 +1383,7 @@ func TestBatchEvents_Heartbeat(t *testing.T) {
 }
 
 func TestBatchEvents_BadUUID_Returns400(t *testing.T) {
-	h, _ := newSSEHandler(t, 30*time.Second)
+	h, _, _ := newSSEHandler(t, 30*time.Second)
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -1378,7 +1397,7 @@ func TestBatchEvents_BadUUID_Returns400(t *testing.T) {
 }
 
 func TestBatchEvents_NoIdentity_Returns401(t *testing.T) {
-	h, _ := newSSEHandler(t, 30*time.Second)
+	h, _, _ := newSSEHandler(t, 30*time.Second)
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -1389,4 +1408,28 @@ func TestBatchEvents_NoIdentity_Returns401(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// TestBatchEvents_UnknownBatch_Returns404 verifies that a batch_id which
+// doesn't exist for the caller's tenant is rejected with 404. The Postgres
+// repo's BatchExistsForTenant filters by tenant_id, so a cross-tenant attempt
+// (knowing another tenant's batch UUID) also lands here. The 404 — rather
+// than 403 — avoids leaking the existence of batches in other tenants.
+// Cross-tenant scoping is verified end-to-end by the Postgres integration
+// test for BatchExistsForTenant; this unit test covers the handler's gate.
+func TestBatchEvents_UnknownBatch_Returns404(t *testing.T) {
+	h, _, _ := newSSEHandler(t, 30*time.Second)
+
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/resumes/batches/"+uuid.New().String()+"/events", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"unknown batch must return 404")
+	assert.Contains(t, rec.Body.String(), "batch_not_found")
 }

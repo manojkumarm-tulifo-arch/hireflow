@@ -38,6 +38,9 @@ func (r *oneShotRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ 
 func (r *oneShotRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]*entities.ResumeUpload, error) {
 	return nil, nil
 }
+func (r *oneShotRepo) BatchExistsForTenant(_ context.Context, _ shared.TenantID, _ uuid.UUID) (bool, error) {
+	return false, nil
+}
 func (r *oneShotRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {
 	if r.served.CompareAndSwap(false, true) {
 		return r.u, nil
