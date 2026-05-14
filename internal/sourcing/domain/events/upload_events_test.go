@@ -32,34 +32,43 @@ func TestResumeUploadAccepted_Shape(t *testing.T) {
 }
 
 func TestResumeUploadFailed_CarriesReason(t *testing.T) {
+	batchID := uuid.New()
 	ev := events.ResumeUploadFailed{
 		UploadID:   uuid.New(),
 		TenantID:   shared.NewTenantID(),
+		BatchID:    batchID,
 		Reason:     "virus_detected",
 		Detail:     "EICAR-TEST",
 		OccurredAt: time.Now().UTC(),
 	}
 	assert.Equal(t, "sourcing.ResumeUploadFailed", ev.EventName())
 	assert.Equal(t, "virus_detected", ev.Reason)
+	assert.Equal(t, batchID, ev.BatchID)
 }
 
 func TestResumeExtracted_Shape(t *testing.T) {
+	batchID := uuid.New()
 	ev := events.ResumeExtracted{
 		UploadID:   uuid.New(),
 		TenantID:   shared.NewTenantID(),
+		BatchID:    batchID,
 		PageCount:  3,
 		OccurredAt: time.Now().UTC(),
 	}
 	assert.Equal(t, "sourcing.ResumeExtracted", ev.EventName())
+	assert.Equal(t, batchID, ev.BatchID)
 }
 
 func TestResumeParsed_Shape(t *testing.T) {
+	batchID := uuid.New()
 	ev := events.ResumeParsed{
 		UploadID:    uuid.New(),
 		TenantID:    shared.NewTenantID(),
+		BatchID:     batchID,
 		CandidateID: uuid.New(),
 		OccurredAt:  time.Now().UTC(),
 	}
 	assert.Equal(t, "sourcing.ResumeParsed", ev.EventName())
 	assert.Equal(t, ev.UploadID, ev.AggregateID())
+	assert.Equal(t, batchID, ev.BatchID)
 }

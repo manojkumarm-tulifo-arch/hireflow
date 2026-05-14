@@ -149,7 +149,7 @@ func (u *ResumeUpload) CompleteExtracted() error {
 	}
 	_, pages, _ := u.artifacts.ExtractedText()
 	u.emit(events.ResumeExtracted{
-		UploadID: u.id, TenantID: u.tenantID, PageCount: pages, OccurredAt: u.updatedAt,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID, PageCount: pages, OccurredAt: u.updatedAt,
 	})
 	return nil
 }
@@ -163,7 +163,7 @@ func (u *ResumeUpload) Quarantine(signature string) error {
 	u.lastError = signature
 	u.touch()
 	u.emit(events.ResumeUploadFailed{
-		UploadID: u.id, TenantID: u.tenantID,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID,
 		Reason: "virus_detected", Detail: signature, OccurredAt: u.updatedAt,
 	})
 	return nil
@@ -178,7 +178,7 @@ func (u *ResumeUpload) MarkFailed(d vo.RetryDecision) error {
 	u.lastError = d.Detail
 	u.touch()
 	u.emit(events.ResumeUploadFailed{
-		UploadID: u.id, TenantID: u.tenantID,
+		UploadID: u.id, TenantID: u.tenantID, BatchID: u.batchID,
 		Reason: d.Reason, Detail: d.Detail, OccurredAt: u.updatedAt,
 	})
 	return nil
@@ -274,6 +274,7 @@ func (u *ResumeUpload) CompleteParsed() error {
 	u.emit(events.ResumeParsed{
 		UploadID:    u.id,
 		TenantID:    u.tenantID,
+		BatchID:     u.batchID,
 		CandidateID: u.candidateID,
 		OccurredAt:  u.updatedAt,
 	})

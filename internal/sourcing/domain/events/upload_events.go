@@ -39,6 +39,7 @@ func (e ResumeUploadAccepted) At() time.Time           { return e.OccurredAt }
 type ResumeUploadFailed struct {
 	UploadID   uuid.UUID       `json:"upload_id"`
 	TenantID   shared.TenantID `json:"tenant_id"`
+	BatchID    uuid.UUID       `json:"batch_id"`
 	Reason     string          `json:"reason"`
 	Detail     string          `json:"detail"`
 	OccurredAt time.Time       `json:"occurred_at"`
@@ -54,6 +55,7 @@ func (e ResumeUploadFailed) At() time.Time           { return e.OccurredAt }
 type ResumeExtracted struct {
 	UploadID   uuid.UUID       `json:"upload_id"`
 	TenantID   shared.TenantID `json:"tenant_id"`
+	BatchID    uuid.UUID       `json:"batch_id"`
 	PageCount  int             `json:"page_count"`
 	OccurredAt time.Time       `json:"occurred_at"`
 }
@@ -69,6 +71,7 @@ func (e ResumeExtracted) At() time.Time           { return e.OccurredAt }
 type ResumeParsed struct {
 	UploadID    uuid.UUID       `json:"upload_id"`
 	TenantID    shared.TenantID `json:"tenant_id"`
+	BatchID     uuid.UUID       `json:"batch_id"`
 	CandidateID uuid.UUID       `json:"candidate_id"`
 	OccurredAt  time.Time       `json:"occurred_at"`
 }

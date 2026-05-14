@@ -10,6 +10,7 @@ import (
 
 	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/sourcing/domain/entities"
+	"github.com/hustle/hireflow/internal/sourcing/domain/events"
 	vo "github.com/hustle/hireflow/internal/sourcing/domain/valueobjects"
 )
 
@@ -81,6 +82,9 @@ func TestQuarantine_FromScanning(t *testing.T) {
 	evs := u.PullEvents()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "sourcing.ResumeUploadFailed", evs[0].EventName())
+	failed, ok2 := evs[0].(events.ResumeUploadFailed)
+	require.True(t, ok2, "event must be ResumeUploadFailed")
+	assert.Equal(t, u.BatchID(), failed.BatchID)
 }
 
 func TestExtractingFlow_PersistsArtifactAndCompletes(t *testing.T) {
@@ -97,6 +101,9 @@ func TestExtractingFlow_PersistsArtifactAndCompletes(t *testing.T) {
 	evs := u.PullEvents()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "sourcing.ResumeExtracted", evs[0].EventName())
+	extracted, ok2 := evs[0].(events.ResumeExtracted)
+	require.True(t, ok2, "event must be ResumeExtracted")
+	assert.Equal(t, u.BatchID(), extracted.BatchID)
 
 	text, pages, ok := u.Artifacts().ExtractedText()
 	require.True(t, ok)
@@ -181,6 +188,9 @@ func TestParsingFlow_HappyPath(t *testing.T) {
 	evs := u.PullEvents()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "sourcing.ResumeParsed", evs[0].EventName())
+	parsed, ok3 := evs[0].(events.ResumeParsed)
+	require.True(t, ok3, "event must be ResumeParsed")
+	assert.Equal(t, u.BatchID(), parsed.BatchID)
 }
 
 func TestParsingFlow_RecordParsedProfile_OnlyDuringParsing(t *testing.T) {
