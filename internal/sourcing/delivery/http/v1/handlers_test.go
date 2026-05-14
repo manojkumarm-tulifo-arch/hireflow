@@ -86,6 +86,10 @@ func (s *memStorage) MoveToQuarantine(_ context.Context, k string) (string, erro
 	delete(s.puts, k)
 	return "quarantine/" + k, nil
 }
+func (s *memStorage) Delete(_ context.Context, k string) error {
+	delete(s.puts, k)
+	return nil
+}
 
 const pdfMagic = "%PDF-1.4\n%test\n"
 

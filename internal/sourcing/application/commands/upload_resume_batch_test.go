@@ -84,6 +84,10 @@ func (s *fakeStorage) MoveToQuarantine(_ context.Context, key string) (string, e
 	delete(s.puts, key)
 	return "quarantine/" + key, nil
 }
+func (s *fakeStorage) Delete(_ context.Context, key string) error {
+	delete(s.puts, key)
+	return nil
+}
 
 // 1.4 PDF magic so SniffMimeType accepts it.
 const pdfMagic = "%PDF-1.4\n%fake content\n"

@@ -66,6 +66,10 @@ func (s *stubStorage) MoveToQuarantine(_ context.Context, key string) (string, e
 	delete(s.puts, key)
 	return "quarantine/" + key, nil
 }
+func (s *stubStorage) Delete(_ context.Context, key string) error {
+	delete(s.puts, key)
+	return nil
+}
 
 // stubScanner always returns clean.
 type stubScanner struct{}

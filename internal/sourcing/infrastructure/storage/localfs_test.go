@@ -78,6 +78,32 @@ func TestPut_RejectsKeyEscapingRoot(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestDelete_PutThenDelete_FileGone(t *testing.T) {
+	fs := newFS(t)
+	require.NoError(t, fs.Put(context.Background(), "ab/del.pdf", bytes.NewReader([]byte("data"))))
+
+	// Confirm file exists before deletion.
+	_, err := fs.Open(context.Background(), "ab/del.pdf")
+	require.NoError(t, err)
+
+	require.NoError(t, fs.Delete(context.Background(), "ab/del.pdf"))
+
+	_, err = fs.Open(context.Background(), "ab/del.pdf")
+	assert.ErrorIs(t, err, storage.ErrNotFound)
+}
+
+func TestDelete_MissingKey_Idempotent(t *testing.T) {
+	fs := newFS(t)
+	err := fs.Delete(context.Background(), "does/not/exist")
+	assert.NoError(t, err)
+}
+
+func TestDelete_RejectsKeyEscapingRoot(t *testing.T) {
+	fs := newFS(t)
+	err := fs.Delete(context.Background(), "../escape")
+	assert.ErrorIs(t, err, storage.ErrUnsafeKey)
+}
+
 // Sanity: bytes really hit disk under the configured root.
 func TestPut_WritesUnderRoot(t *testing.T) {
 	dir := t.TempDir()
