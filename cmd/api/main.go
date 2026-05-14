@@ -279,11 +279,19 @@ func main() {
 	bus.Subscribe("sourcing.ResumeExtracted", batchFanout.OnEvent)
 	bus.Subscribe("sourcing.ResumeParsed", batchFanout.OnEvent)
 
-	sourcingHandler := sourcinghttp.NewSourcingHandler(
-		uploadHandler, statusHandler, candidateHandler, listApplicationsHandler,
-		transitionApplicationHandler, retryResumeUploadHandler, rescoreIntentHandler, eraseCandidateHandler,
-		batchFanout, 30*time.Second, logger,
-	)
+	sourcingHandler := sourcinghttp.NewSourcingHandler(sourcinghttp.SourcingHandlerDeps{
+		Upload:           uploadHandler,
+		Status:           statusHandler,
+		Candidate:        candidateHandler,
+		ListApplications: listApplicationsHandler,
+		Transition:       transitionApplicationHandler,
+		RetryUpload:      retryResumeUploadHandler,
+		RescoreIntent:    rescoreIntentHandler,
+		EraseCandidate:   eraseCandidateHandler,
+		Fanout:           batchFanout,
+		Heartbeat:        30 * time.Second,
+		Logger:           logger,
+	})
 
 	sourcingPub := sourcingmsg.NewBusPublisher(bus)
 	sourcingDispatcher := sourcingmsg.NewOutboxDispatcher(pool, sourcingPub, logger, sourcingmsg.DispatcherConfig{})
