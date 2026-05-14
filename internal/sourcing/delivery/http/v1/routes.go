@@ -13,4 +13,5 @@ func Mount(r chi.Router, h *SourcingHandler) {
 	r.Post("/applications/{application_id}:shortlist", h.ShortlistApplication)
 	r.Post("/applications/{application_id}:reject", h.RejectApplication)
 	r.Post("/applications/{application_id}:hire", h.HireApplication)
+	r.Post("/resumes/{upload_id}:retry", h.RetryUpload)
 }

@@ -217,6 +217,22 @@ func (u *ResumeUpload) transition(next vo.UploadStatus, errDetail string) error 
 
 func (u *ResumeUpload) touch() { u.updatedAt = time.Now().UTC() }
 
+// ResetForRetry resets a Failed or Quarantined upload back to Pending so the
+// worker pool will re-process it. It deliberately bypasses CanTransitionTo
+// because both Failed and Quarantined are terminal states — this is the rescue
+// path that an operator explicitly requests.
+func (u *ResumeUpload) ResetForRetry() error {
+	if u.status != vo.StatusFailed && u.status != vo.StatusQuarantined {
+		return ErrInvalidTransition
+	}
+	u.status = vo.StatusPending
+	u.attemptCount = 0
+	u.lastError = ""
+	u.nextAttemptAt = time.Now().UTC()
+	u.touch()
+	return nil
+}
+
 // BeginParsing transitions Extracted → Parsing.
 func (u *ResumeUpload) BeginParsing() error {
 	return u.transition(vo.StatusParsing, "")

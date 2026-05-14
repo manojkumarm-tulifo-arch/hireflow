@@ -145,7 +145,7 @@ func newHandler(t *testing.T) (*v1.SourcingHandler, *memRepo, *memStorage) {
 	candRepo := newStubCandRepo()
 	candHandler := queries.NewGetCandidateHandler(candRepo, stubEnc{})
 	// nil for listApplications and transition — slice-1/2 tests don't exercise those endpoints.
-	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop()), repo, store
+	return v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, zerolog.Nop()), repo, store
 }
 
 // withIdentity injects an auth.Identity into the request context — required by requireIdentity().
@@ -345,7 +345,7 @@ func TestGetCandidate_HappyPath(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -375,7 +375,7 @@ func TestGetCandidate_NotFound_Returns404(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -396,7 +396,7 @@ func TestGetCandidate_NoAuth_Returns401(t *testing.T) {
 	store := newMemStorage()
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
-	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, zerolog.Nop())
+	h := v1.NewSourcingHandler(upload, status, candHandler, nil, nil, nil, zerolog.Nop())
 
 	router := chi.NewRouter()
 	v1.Mount(router, h)
@@ -444,7 +444,7 @@ func buildListApplicationsHandler(t *testing.T, appRepo repositories.Application
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	listAppsHandler := queries.NewListApplicationsHandler(appRepo, candRepo, stubEnc{})
-	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, listAppsHandler, nil, nil, zerolog.Nop())
 }
 
 // buildScoredApplicationForHandler returns a scored Application with the given candidate.
@@ -633,7 +633,7 @@ func buildTransitionSourcingHandler(t *testing.T, appRepo repositories.Applicati
 	upload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
 	status := queries.NewGetBatchStatusHandler(repo)
 	transitionH := commands.NewTransitionApplicationHandler(appRepo, audit)
-	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, zerolog.Nop())
+	return v1.NewSourcingHandler(upload, status, nil, nil, transitionH, nil, zerolog.Nop())
 }
 
 // buildScoredApp builds a scored Application seeded in the given repo.
@@ -900,6 +900,152 @@ func TestHireApplication_NoAuth_Returns401(t *testing.T) {
 	v1.Mount(router, h)
 
 	req := httptest.NewRequest(http.MethodPost, "/applications/"+uuid.New().String()+":hire", nil)
+	// no withIdentity
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// RetryUpload endpoint tests
+// ---------------------------------------------------------------------------
+
+// retryRepo is a minimal ResumeUploadRepository for retry endpoint tests.
+type retryRepo struct {
+	byID  map[uuid.UUID]*entities.ResumeUpload
+	saved []*entities.ResumeUpload
+}
+
+func newRetryRepo() *retryRepo {
+	return &retryRepo{byID: map[uuid.UUID]*entities.ResumeUpload{}}
+}
+
+func (r *retryRepo) Save(_ context.Context, u *entities.ResumeUpload) error {
+	_ = u.PullEvents()
+	r.byID[u.ID()] = u
+	r.saved = append(r.saved, u)
+	return nil
+}
+func (r *retryRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UUID) (*entities.ResumeUpload, error) {
+	if u, ok := r.byID[id]; ok {
+		return u, nil
+	}
+	return nil, repositories.ErrNotFound
+}
+func (r *retryRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
+func (r *retryRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
+func (r *retryRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]*entities.ResumeUpload, error) {
+	return nil, nil
+}
+
+// buildRetryUploadHandler creates a SourcingHandler wired with a
+// RetryResumeUploadHandler backed by the given repo.
+func buildRetryUploadHandler(t *testing.T, uploadRepo repositories.ResumeUploadRepository) *v1.SourcingHandler {
+	t.Helper()
+	repo := newMemRepo()
+	store := newMemStorage()
+	batchUpload := commands.NewUploadResumeBatchHandler(repo, store, commands.UploadConfig{MaxFileBytes: 1 << 20})
+	status := queries.NewGetBatchStatusHandler(repo)
+	retryH := commands.NewRetryResumeUploadHandler(uploadRepo)
+	return v1.NewSourcingHandler(batchUpload, status, nil, nil, nil, retryH, zerolog.Nop())
+}
+
+// seedUploadInStatus rehydrates a ResumeUpload in the given status into repo.
+func seedUploadInStatus(repo *retryRepo, tenant shared.TenantID, status vo.UploadStatus) *entities.ResumeUpload {
+	u := entities.RehydrateResumeUpload(entities.RehydrateInput{
+		ID:           uuid.New(),
+		TenantID:     tenant,
+		IntentID:     uuid.New(),
+		BatchID:      uuid.New(),
+		StorageKey:   "key/file.pdf",
+		OriginalName: "resume.pdf",
+		Status:       status,
+		AttemptCount: 2,
+		LastError:    "previous error",
+	})
+	repo.byID[u.ID()] = u
+	return u
+}
+
+func TestRetryUpload_FromFailed_Returns204(t *testing.T) {
+	tenant := shared.NewTenantID()
+	rr := newRetryRepo()
+	upload := seedUploadInStatus(rr, tenant, vo.StatusFailed)
+
+	h := buildRetryUploadHandler(t, rr)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/resumes/"+upload.ID().String()+":retry", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestRetryUpload_FromQuarantined_Returns204(t *testing.T) {
+	tenant := shared.NewTenantID()
+	rr := newRetryRepo()
+	upload := seedUploadInStatus(rr, tenant, vo.StatusQuarantined)
+
+	h := buildRetryUploadHandler(t, rr)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/resumes/"+upload.ID().String()+":retry", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestRetryUpload_NotFound_Returns404(t *testing.T) {
+	rr := newRetryRepo() // empty
+
+	h := buildRetryUploadHandler(t, rr)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/resumes/"+uuid.New().String()+":retry", nil)
+	req = withIdentity(req, shared.NewTenantID())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestRetryUpload_NotRetryableStatus_Returns400(t *testing.T) {
+	tenant := shared.NewTenantID()
+	rr := newRetryRepo()
+	upload := seedUploadInStatus(rr, tenant, vo.StatusPending)
+
+	h := buildRetryUploadHandler(t, rr)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/resumes/"+upload.ID().String()+":retry", nil)
+	req = withIdentity(req, tenant)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRetryUpload_NoAuth_Returns401(t *testing.T) {
+	rr := newRetryRepo()
+
+	h := buildRetryUploadHandler(t, rr)
+	router := chi.NewRouter()
+	v1.Mount(router, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/resumes/"+uuid.New().String()+":retry", nil)
 	// no withIdentity
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

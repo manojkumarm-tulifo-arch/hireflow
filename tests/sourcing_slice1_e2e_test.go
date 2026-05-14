@@ -114,7 +114,7 @@ func TestSourcingSlice1_E2E_UploadScansExtracts(t *testing.T) {
 		RetryBackoff: []time.Duration{time.Second, 5 * time.Second},
 	})
 	statusH := queries.NewGetBatchStatusHandler(repo)
-	handler := v1.NewSourcingHandler(uploadH, statusH, nil, nil, nil, logger)
+	handler := v1.NewSourcingHandler(uploadH, statusH, nil, nil, nil, nil, logger)
 
 	router := chi.NewRouter()
 	v1.Mount(router, handler)

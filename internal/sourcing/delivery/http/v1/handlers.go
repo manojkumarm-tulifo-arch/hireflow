@@ -31,6 +31,7 @@ type SourcingHandler struct {
 	candidate        *queries.GetCandidateHandler
 	listApplications *queries.ListApplicationsHandler
 	transition       *commands.TransitionApplicationHandler
+	retryUpload      *commands.RetryResumeUploadHandler
 	logger           zerolog.Logger
 }
 
@@ -41,6 +42,7 @@ func NewSourcingHandler(
 	candidate *queries.GetCandidateHandler,
 	listApplications *queries.ListApplicationsHandler,
 	transition *commands.TransitionApplicationHandler,
+	retryUpload *commands.RetryResumeUploadHandler,
 	logger zerolog.Logger,
 ) *SourcingHandler {
 	return &SourcingHandler{
@@ -49,6 +51,7 @@ func NewSourcingHandler(
 		candidate:        candidate,
 		listApplications: listApplications,
 		transition:       transition,
+		retryUpload:      retryUpload,
 		logger:           logger,
 	}
 }
@@ -378,6 +381,39 @@ func (h *SourcingHandler) transitionApplication(
 		}
 		// "reject: reason required" is already guarded above, but handle defensively.
 		h.logger.Error().Err(handleErr).Str("action", string(action)).Msg("application transition failed")
+		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RetryUpload handles POST /resumes/{upload_id}:retry.
+func (h *SourcingHandler) RetryUpload(w http.ResponseWriter, r *http.Request) {
+	identity, err := auth.IdentityFromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing identity")
+		return
+	}
+	uploadID, err := uuid.Parse(chi.URLParam(r, "upload_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_upload_id", "upload_id must be a uuid")
+		return
+	}
+
+	handleErr := h.retryUpload.Handle(r.Context(), commands.RetryResumeUploadInput{
+		TenantID: identity.TenantID,
+		UploadID: uploadID,
+	})
+	if handleErr != nil {
+		if errors.Is(handleErr, repositories.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload_not_found", "upload not found")
+			return
+		}
+		if errors.Is(handleErr, commands.ErrNotRetryable) {
+			writeError(w, http.StatusBadRequest, "not_retryable", "upload status is not retryable (must be Failed or Quarantined)")
+			return
+		}
+		h.logger.Error().Err(handleErr).Msg("retry upload failed")
 		writeError(w, http.StatusInternalServerError, "internal_error", handleErr.Error())
 		return
 	}

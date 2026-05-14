@@ -195,6 +195,76 @@ func TestParsingFlow_LinkCandidate_OnlyDuringParsing(t *testing.T) {
 	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
 }
 
+// ---------------------------------------------------------------------------
+// ResetForRetry tests
+// ---------------------------------------------------------------------------
+
+func uploadInStatus(t *testing.T, targetStatus vo.UploadStatus) *entities.ResumeUpload {
+	t.Helper()
+	u := newUpload(t)
+	_ = u.PullEvents()
+	switch targetStatus {
+	case vo.StatusFailed:
+		require.NoError(t, u.MarkFailed(vo.Fatal("test_reason", "test detail")))
+		_ = u.PullEvents()
+	case vo.StatusQuarantined:
+		require.NoError(t, u.BeginScanning())
+		require.NoError(t, u.Quarantine("EICAR-TEST"))
+		_ = u.PullEvents()
+	}
+	return u
+}
+
+func TestResetForRetry_FromFailed_ResetsToPending(t *testing.T) {
+	u := uploadInStatus(t, vo.StatusFailed)
+	require.Equal(t, vo.StatusFailed, u.Status())
+
+	before := time.Now().UTC()
+	err := u.ResetForRetry()
+	require.NoError(t, err)
+
+	assert.Equal(t, vo.StatusPending, u.Status())
+	assert.Equal(t, 0, u.AttemptCount())
+	assert.Equal(t, "", u.LastError())
+	assert.False(t, u.NextAttemptAt().Before(before), "nextAttemptAt must be >= before")
+	assert.Empty(t, u.PullEvents(), "ResetForRetry must not emit events")
+}
+
+func TestResetForRetry_FromQuarantined_ResetsToPending(t *testing.T) {
+	u := uploadInStatus(t, vo.StatusQuarantined)
+	require.Equal(t, vo.StatusQuarantined, u.Status())
+
+	before := time.Now().UTC()
+	err := u.ResetForRetry()
+	require.NoError(t, err)
+
+	assert.Equal(t, vo.StatusPending, u.Status())
+	assert.Equal(t, 0, u.AttemptCount())
+	assert.Equal(t, "", u.LastError())
+	assert.False(t, u.NextAttemptAt().Before(before), "nextAttemptAt must be >= before")
+}
+
+func TestResetForRetry_FromPending_ReturnsErrInvalidTransition(t *testing.T) {
+	u := newUpload(t)
+	err := u.ResetForRetry()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
+func TestResetForRetry_FromScored_ReturnsErrInvalidTransition(t *testing.T) {
+	// Scored is a terminal state that is not retryable.
+	u := entities.RehydrateResumeUpload(entities.RehydrateInput{
+		ID:           uuid.New(),
+		TenantID:     shared.NewTenantID(),
+		IntentID:     uuid.New(),
+		BatchID:      uuid.New(),
+		StorageKey:   "k",
+		OriginalName: "f.pdf",
+		Status:       vo.StatusScored,
+	})
+	err := u.ResetForRetry()
+	assert.ErrorIs(t, err, entities.ErrInvalidTransition)
+}
+
 func TestParsingFlow_CompleteParsed_RequiresProfileAndCandidate(t *testing.T) {
 	u := newUpload(t)
 	_ = u.PullEvents()
