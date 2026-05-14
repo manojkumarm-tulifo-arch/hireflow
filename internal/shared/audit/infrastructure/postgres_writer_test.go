@@ -144,7 +144,3 @@ func TestPostgresAuditWriter_Write_InvalidEventReturnsValidateError(t *testing.T
 	assert.Equal(t, 0, count)
 }
 
-func TestPostgresAuditWriter_ImplementsAuditWriterInterface(t *testing.T) {
-	pool := newAuditPool(t)
-	var _ domain.AuditWriter = infrastructure.NewPostgresAuditWriter(pool)
-}

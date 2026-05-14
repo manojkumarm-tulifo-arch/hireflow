@@ -42,6 +42,3 @@ func TestNoopAuditWriter_WriteReturnsNil_EmptyPayload(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNoopAuditWriter_ImplementsAuditWriterInterface(t *testing.T) {
-	var _ domain.AuditWriter = infrastructure.NewNoopAuditWriter()
-}

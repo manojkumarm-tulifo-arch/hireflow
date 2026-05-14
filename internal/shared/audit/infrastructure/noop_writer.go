@@ -6,6 +6,8 @@ import (
 	"github.com/hustle/hireflow/internal/shared/audit/domain"
 )
 
+var _ domain.AuditWriter = (*NoopAuditWriter)(nil)
+
 // NoopAuditWriter discards every audit event. Intended for unit tests that
 // exercise application logic but do not care about audit persistence.
 type NoopAuditWriter struct{}

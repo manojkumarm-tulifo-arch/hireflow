@@ -9,6 +9,8 @@ import (
 	"github.com/hustle/hireflow/internal/shared/audit/domain"
 )
 
+var _ domain.AuditWriter = (*PostgresAuditWriter)(nil)
+
 // PostgresAuditWriter persists AuditEvents to the audit_log table.
 type PostgresAuditWriter struct {
 	pool *pgxpool.Pool
