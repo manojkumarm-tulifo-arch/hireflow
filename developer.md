@@ -145,6 +145,9 @@ make migrate-up
 
 The `migrations/shared/` directory holds cross-context schema changes (e.g. the `audit_log` table introduced in sourcing slice 4). The `MIGRATE_SHARED` Makefile variable targets that path with its own tracking table (`schema_migrations_shared`), so shared migrations never collide with per-context ones.
 
+- `migrations/interview/` — interview context (slice 1+). Migration target: `make MIGRATE_INTERVIEW`.
+  Env vars: `INTERVIEW_QGEN_POOL` (default 2), `INTERVIEW_QGEN_POLL` (default 1s).
+
 Verify the 13 tables exist:
 
 ```bash

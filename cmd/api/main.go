@@ -65,6 +65,16 @@ import (
 	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
+
+	interviewcommands "github.com/hustle/hireflow/internal/interview/application/commands"
+	interviewqueries "github.com/hustle/hireflow/internal/interview/application/queries"
+	interviewhttp "github.com/hustle/hireflow/internal/interview/delivery/http/v1"
+	interviewclients "github.com/hustle/hireflow/internal/interview/infrastructure/clients"
+	interviewgen "github.com/hustle/hireflow/internal/interview/infrastructure/generation"
+	interviewmsg "github.com/hustle/hireflow/internal/interview/infrastructure/messaging"
+	interviewpersist "github.com/hustle/hireflow/internal/interview/infrastructure/persistence"
+	interviewsubs "github.com/hustle/hireflow/internal/interview/infrastructure/subscribers"
+	interviewworker "github.com/hustle/hireflow/internal/interview/infrastructure/worker"
 )
 
 func main() {
@@ -331,6 +341,72 @@ func main() {
 		return intentConfirmedConsumer.Consume(ctx, typed)
 	})
 
+	// ============================================================================
+	// Interview context (slice 1) — question generation + recruiter feedback.
+	// ============================================================================
+
+	// Repositories.
+	interviewProcessRepo := interviewpersist.NewPostgresProcessRepository(pool)
+	interviewTemplateRepo := interviewpersist.NewPostgresLoopTemplateRepository(pool)
+	interviewFeedbackRepo := interviewpersist.NewPostgresFeedbackRepository(pool)
+	interviewOutboxAppender := interviewmsg.NewPostgresOutboxAppender(pool)
+
+	// Cross-context readers.
+	interviewIntentReader := interviewclients.NewPostgresIntentReader(pool)
+	interviewCandidateReader := interviewclients.NewPostgresCandidateReader(pool)
+
+	// LLM-backed question generator. Reuses the existing Anthropic client.
+	interviewGenerator := interviewgen.NewAnthropicQuestionGenerator(anthropicClient.SDK(), anthropicCfg.Model)
+
+	// Command + query handlers.
+	startInterviewProcess := interviewcommands.NewStartInterviewProcessHandler(interviewProcessRepo, interviewTemplateRepo)
+	upsertLoopTemplate := interviewcommands.NewUpsertLoopTemplateHandler(interviewTemplateRepo, auditWriter)
+	generateRoundQuestions := interviewcommands.NewGenerateRoundQuestionsHandler(
+		interviewProcessRepo, interviewIntentReader, interviewCandidateReader, interviewGenerator,
+	)
+	regenerateRoundQuestions := interviewcommands.NewRegenerateRoundQuestionsHandler(interviewProcessRepo)
+	recordFeedback := interviewcommands.NewRecordFeedbackHandler(interviewFeedbackRepo, interviewProcessRepo, auditWriter, interviewOutboxAppender)
+	markRoundCompleted := interviewcommands.NewMarkRoundCompletedHandler(interviewProcessRepo, auditWriter)
+	markRoundSkipped := interviewcommands.NewMarkRoundSkippedHandler(interviewProcessRepo, auditWriter)
+	completeProcess := interviewcommands.NewCompleteProcessHandler(interviewProcessRepo, auditWriter)
+	cancelProcess := interviewcommands.NewCancelProcessHandler(interviewProcessRepo, auditWriter)
+
+	getInterviewProcess := interviewqueries.NewGetInterviewProcessHandler(interviewProcessRepo, interviewFeedbackRepo, auditWriter)
+	listInterviewProcesses := interviewqueries.NewListInterviewProcessesHandler(interviewProcessRepo)
+	getLoopTemplate := interviewqueries.NewGetLoopTemplateHandler(interviewTemplateRepo)
+
+	// HTTP handler.
+	interviewHandler := interviewhttp.NewInterviewHandler(interviewhttp.InterviewHandlerDeps{
+		UpsertTemplate:           upsertLoopTemplate,
+		RecordFeedback:           recordFeedback,
+		MarkRoundCompleted:       markRoundCompleted,
+		MarkRoundSkipped:         markRoundSkipped,
+		CompleteProcess:          completeProcess,
+		CancelProcess:            cancelProcess,
+		RegenerateRoundQuestions: regenerateRoundQuestions,
+		GetInterviewProcess:      getInterviewProcess,
+		ListInterviewProcesses:   listInterviewProcesses,
+		GetLoopTemplate:          getLoopTemplate,
+		Logger:                   logger,
+	})
+
+	// Outbox + dispatcher (own table + own dispatcher).
+	interviewPub := interviewmsg.NewBusPublisher(bus)
+	interviewDispatcher := interviewmsg.NewOutboxDispatcher(pool, interviewPub, logger, interviewmsg.DispatcherConfig{})
+
+	// Worker pool.
+	interviewPoolSize := getenvInt("INTERVIEW_QGEN_POOL", 2)
+	interviewPollInterval := getenvDuration("INTERVIEW_QGEN_POLL", time.Second)
+	interviewWorker := interviewworker.NewQuestionGenerationPool(
+		interviewProcessRepo, generateRoundQuestions,
+		interviewworker.Config{Size: interviewPoolSize, PollInterval: interviewPollInterval},
+		logger,
+	)
+
+	// Subscriber: wire ApplicationShortlisted → StartInterviewProcess.
+	appShortlistedConsumer := interviewsubs.NewApplicationShortlistedConsumer(startInterviewProcess, logger)
+	bus.Subscribe("sourcing.ApplicationShortlisted", appShortlistedConsumer.Handle)
+
 	// Wire auth context.
 	userRepo := authpersist.NewPostgresUserRepository(pool)
 	tenantRepo := authpersist.NewPostgresTenantRepository(pool)
@@ -381,6 +457,7 @@ func main() {
 			intenthttp.Mount(r, intentHandler)
 			postinghttp.Mount(r, postingHandler)
 			sourcinghttp.Mount(r, sourcingHandler)
+			interviewhttp.Mount(r, interviewHandler)
 		})
 	})
 
@@ -434,6 +511,18 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		interviewDispatcher.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		interviewWorker.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		logger.Info().Str("port", port).Msg("server starting")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Err(err).Msg("server error")
@@ -482,6 +571,18 @@ func getenvInt64(key string, def int64) int64 {
 
 func getenvInt(key string, def int) int {
 	return int(getenvInt64(key, int64(def)))
+}
+
+func getenvDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 func requestLogger(logger zerolog.Logger) func(next http.Handler) http.Handler {
