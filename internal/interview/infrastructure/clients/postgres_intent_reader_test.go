@@ -51,13 +51,15 @@ func TestIntentReader_ReadsRoleSpec(t *testing.T) {
 	tenant, err := shared.ParseTenantID(tenantID.String())
 	require.NoError(t, err)
 
+	roleJSON := `{
+		"title": "Senior Backend",
+		"skills": [{"name":"Go","required":true},{"name":"Kafka","required":false}],
+		"experience": {"min": 4, "max": 8}
+	}`
 	_, err = pool.Exec(context.Background(), `
 		INSERT INTO hiring_intents (id, tenant_id, recruiter_id, role, priority, status, created_at, updated_at, reports_to, team)
 		VALUES ($1, $2, $3, $4::jsonb, 'MEDIUM', 'CONFIRMED', now(), now(), $5, $6)
-	`, intentID, tenant.String(), uuid.New(),
-		`{"title":"Senior Backend","skills":[{"name":"Go","required":true},{"name":"Kafka","required":false}],"years_min":4,"years_max":8,"seniority":"senior"}`,
-		"VP Eng", "Payments",
-	)
+	`, intentID, tenant.String(), uuid.New(), roleJSON, "VP Eng", "Payments")
 	require.NoError(t, err)
 
 	spec, err := reader.GetRoleSpec(context.Background(), tenant, intentID)
@@ -66,7 +68,7 @@ func TestIntentReader_ReadsRoleSpec(t *testing.T) {
 	assert.Equal(t, "Senior Backend", spec.Title)
 	assert.Equal(t, 4, spec.YearsMin)
 	assert.Equal(t, 8, spec.YearsMax)
-	assert.Equal(t, "senior", spec.Seniority)
+	assert.Equal(t, "", spec.Seniority)
 	assert.Equal(t, "VP Eng", spec.Reports)
 	assert.Equal(t, "Payments", spec.Team)
 
@@ -94,7 +96,7 @@ func TestIntentReader_TenantScoped(t *testing.T) {
 		INSERT INTO hiring_intents (id, tenant_id, recruiter_id, role, priority, status, created_at, updated_at, reports_to, team)
 		VALUES ($1, $2, $3, $4::jsonb, 'MEDIUM', 'CONFIRMED', now(), now(), '', '')
 	`, intentID, tenantA.String(), uuid.New(),
-		`{"title":"Backend Dev","skills":[],"years_min":2,"years_max":5,"seniority":"mid"}`)
+		`{"title":"Backend Dev","skills":[],"experience":{"min":2,"max":5}}`)
 	require.NoError(t, err)
 
 	// tenantB cannot see tenantA's intent.
