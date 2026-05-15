@@ -176,6 +176,12 @@ Stored as JSONB in `interview_rounds.questions`:
       "Reaches for Kafka or similar log-structured store",
       "Considers backpressure and partitioning"
     ],
+    "model_answer": "A strong answer clarifies durability requirements first (can we drop data?) and latency targets. Reaches for a log-structured store like Kafka or Redpanda. Partitions by key (e.g., merchant_id) for ordered per-key processing. Uses consumer groups with at-least-once delivery plus idempotency keys for exactly-once-effective semantics. Mentions back-pressure (slowing producers when consumers lag), DLQs for poison pills, and replay capability.",
+    "red_flags": [
+      "Reaches immediately for a SQL database without discussing throughput",
+      "Doesn't mention partitioning or ordering",
+      "Treats 'at-least-once' and 'exactly-once' as interchangeable"
+    ],
     "follow_ups": [
       "How would you handle a downstream consumer being slow?",
       "What if a partition becomes hot?"
@@ -184,7 +190,19 @@ Stored as JSONB in `interview_rounds.questions`:
 ]
 ```
 
-The Anthropic adapter validates the shape (JSON-schema-style check inside the parser) before persisting. Malformed LLM output triggers a single retry with a "your last output was not valid JSON" suffix, then transitions the round to `GenerationFailed`.
+Per-field semantics:
+
+| Field | Required | Purpose |
+|---|---|---|
+| `prompt` | yes | The question the interviewer asks the candidate. |
+| `skill_probed` | yes | Which skill from the role spec this question targets. |
+| `why` | yes | One-line rationale tying the question back to something in the candidate's profile. |
+| `expected_signals` | yes (≥3) | What a strong answer demonstrates. Used as pre-call scaffolding and as input to future answer-evaluation features. |
+| `model_answer` | yes | Paragraph-form sketch of what a strong answer looks like. **This is the key field for interviewers whose own expertise doesn't fully cover the candidate's domain** — it gives them a concrete reference to compare the candidate's response against in real time. |
+| `red_flags` | yes (≥2) | Specific weak-answer patterns. Watch-fors that complement `expected_signals`. |
+| `follow_ups` | yes (≥1) | 1-2 deeper probes the interviewer can ask if the candidate's first pass is shallow. |
+
+The Anthropic adapter validates the shape (JSON-schema-style check inside the parser) before persisting: every field present, lists meet their minimum counts, `model_answer` is non-empty. Malformed LLM output triggers a single retry with a "your last output was not valid JSON" suffix, then transitions the round to `GenerationFailed`.
 
 ### Default loop fallback
 
@@ -351,11 +369,12 @@ type GenerationInput struct {
   1. Names the round type and what it should probe.
   2. Embeds the role spec (formatted as a brief).
   3. Embeds the candidate profile (skills, experiences, education).
-  4. Specifies the output JSON schema (matches the `Question` struct).
+  4. Specifies the output JSON schema — every field in the *Question shape* table above, including the new `model_answer` and `red_flags` fields.
   5. Includes a fixed number of `n` questions to generate (default 6 for technical/system_design, 4 for screen/behavioral/bar_raiser; configurable via env).
-  6. Includes steering text if provided.
+  6. Instructs the model to write `model_answer` such that a domain-generalist interviewer can use it as a real-time reference — concrete, specific, and verifiable rather than vague.
+  7. Includes steering text if provided.
 - Uses Anthropic's structured output (tool-use forced response) to get clean JSON.
-- Validates: parses JSON, asserts each question has the required fields, asserts count is in range, asserts `skill_probed` references something plausible from the role spec.
+- Validates: parses JSON, asserts each question has all required fields, asserts list lengths meet minimums, asserts `skill_probed` references something plausible from the role spec, asserts `model_answer` is non-empty.
 
 ### Generation worker pool
 
@@ -487,6 +506,7 @@ Deferred to future slices in the interview-module roadmap:
 - **Candidate-facing UX.** No notification to the candidate, no self-scheduling, no progress visibility.
 - **LoopTemplate versioning.** Changing the template after shortlists exist does NOT mutate existing processes — they keep the rounds they were created with. Versioned templates with migration paths are deferred.
 - **Per-tenant prompt customization / question-bank seeding.** All tenants get the same per-kind prompt templates in slice 1; tenant-specific overrides or seeded canned-question libraries are deferred.
+- **Per-answer LLM evaluation (the natural next slice).** Slice 1's `model_answer` + `red_flags` give the interviewer a pre-call reference, but still require them to map the candidate's response to the model answer themselves. The next slice adds a `POST /interview/rounds/{id}/questions/{question_id}:evaluate` endpoint: the interviewer enters what the candidate said, the LLM returns a structured verdict (`strong | mixed | weak` + per-signal coverage + factual errors detected + suggested deeper probe). This is the right answer for cross-domain interviewing (e.g., a non-technical founder running the screen for a Senior ML Engineer) — the LLM acts as a subject-matter expert advisor; the interviewer remains the decider.
 
 ## Future scope — broader sourcing roadmap
 
@@ -514,7 +534,7 @@ End-to-end product surface:
 
 - Recruiter shortlists a candidate via the slice-4 endpoint.
 - An `InterviewProcess` is created automatically with three default rounds (or whatever the intent template defines).
-- Within seconds (worker pool latency + LLM round-trip), each round has tailored, structured questions ready for the recruiter to see.
+- Within seconds (worker pool latency + LLM round-trip), each round has tailored, structured questions ready for the recruiter to see. Every question carries a `model_answer` and `red_flags` so an interviewer whose own expertise doesn't fully cover the candidate's domain has a concrete reference for what to listen for.
 - The recruiter conducts the interview, types interviewer name + email + decision + notes into a feedback form per round.
 - The recruiter marks each round done as it completes.
 - The recruiter completes or cancels the process when the loop is done.
