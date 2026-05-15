@@ -207,7 +207,7 @@ func TestInterviewSlice1_E2E(t *testing.T) {
 	generateQH := interviewcommands.NewGenerateRoundQuestionsHandler(
 		processRepo, interviewIntentReader, interviewCandidateReader, gen,
 	)
-	regenerateQH := interviewcommands.NewRegenerateRoundQuestionsHandler(processRepo)
+	regenerateQH := interviewcommands.NewRegenerateRoundQuestionsHandler(processRepo, auditWriter)
 	recordFeedbackH := interviewcommands.NewRecordFeedbackHandler(feedbackRepo, processRepo, auditWriter, outboxAppender)
 	markDoneH := interviewcommands.NewMarkRoundCompletedHandler(processRepo, auditWriter)
 	markSkipH := interviewcommands.NewMarkRoundSkippedHandler(processRepo, auditWriter)
