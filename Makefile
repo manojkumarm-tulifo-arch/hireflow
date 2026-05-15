@@ -30,6 +30,9 @@ test-integration:
 	# doesn't race across the persistence / clients / tests packages.
 	go test ./internal/sourcing/infrastructure/persistence/... \
 	        ./internal/sourcing/infrastructure/clients/... \
+	        ./internal/interview/infrastructure/persistence/... \
+	        ./internal/interview/infrastructure/clients/... \
+	        ./internal/interview/infrastructure/messaging/... \
 	        ./tests/... \
 	        -race -count=1 -tags=integration -p 1
 
