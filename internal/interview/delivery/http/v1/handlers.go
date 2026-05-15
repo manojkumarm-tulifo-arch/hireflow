@@ -330,9 +330,10 @@ func (h *InterviewHandler) RegenerateRoundQuestions(w http.ResponseWriter, r *ht
 	// Body is optional — ignore decode errors when body is empty.
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if err := h.deps.RegenerateRoundQuestions.Handle(r.Context(), commands.RegenerateRoundQuestionsInput{
-		TenantID: identity.TenantID,
-		RoundID:  roundID,
-		Steering: body.Steering,
+		TenantID:    identity.TenantID,
+		ActorUserID: identity.RecruiterID.UUID(),
+		RoundID:     roundID,
+		Steering:    body.Steering,
 	}); err != nil {
 		switch {
 		case errors.Is(err, entities.ErrRoundNotFound):

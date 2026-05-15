@@ -38,7 +38,7 @@ func TestRegenerate_FromQuestionsReady_ResetsToPending(t *testing.T) {
 	tenantID := shared.NewTenantID()
 	p, roundID := seedProcessWithRoundStatus(t, repo, tenantID, vo.RoundStatusQuestionsReady)
 
-	h := commands.NewRegenerateRoundQuestionsHandler(repo)
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantID,
 		RoundID:  roundID,
@@ -65,7 +65,7 @@ func TestRegenerate_FromGenerationFailed_ResetsToPending(t *testing.T) {
 	tenantID := shared.NewTenantID()
 	p, roundID := seedProcessWithRoundStatus(t, repo, tenantID, vo.RoundStatusGenerationFailed)
 
-	h := commands.NewRegenerateRoundQuestionsHandler(repo)
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantID,
 		RoundID:  roundID,
@@ -86,7 +86,7 @@ func TestRegenerate_FromCompleted_ReturnsErrRoundNotRegenerable(t *testing.T) {
 	tenantID := shared.NewTenantID()
 	_, roundID := seedProcessWithRoundStatus(t, repo, tenantID, vo.RoundStatusCompleted)
 
-	h := commands.NewRegenerateRoundQuestionsHandler(repo)
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantID,
 		RoundID:  roundID,
@@ -101,7 +101,7 @@ func TestRegenerate_FromSkipped_ReturnsErrRoundNotRegenerable(t *testing.T) {
 	tenantID := shared.NewTenantID()
 	_, roundID := seedProcessWithRoundStatus(t, repo, tenantID, vo.RoundStatusSkipped)
 
-	h := commands.NewRegenerateRoundQuestionsHandler(repo)
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantID,
 		RoundID:  roundID,
@@ -115,13 +115,45 @@ func TestRegenerate_RoundNotFound_ReturnsErrRoundNotFound(t *testing.T) {
 	repo := newFakeProcessRepo()
 	tenantID := shared.NewTenantID()
 
-	h := commands.NewRegenerateRoundQuestionsHandler(repo)
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantID,
 		RoundID:  uuid.New(), // bogus round ID — no matching process
 	})
 	if !errors.Is(err, entities.ErrRoundNotFound) {
 		t.Errorf("want ErrRoundNotFound, got: %v", err)
+	}
+}
+
+func TestRegenerate_AuditWritten(t *testing.T) {
+	repo := newFakeProcessRepo()
+	tenantID := shared.NewTenantID()
+	actorID := uuid.New()
+	_, roundID := seedProcessWithRoundStatus(t, repo, tenantID, vo.RoundStatusQuestionsReady)
+
+	audit := &captureAuditWriter{}
+	h := commands.NewRegenerateRoundQuestionsHandler(repo, audit)
+	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
+		TenantID:    tenantID,
+		ActorUserID: actorID,
+		RoundID:     roundID,
+	})
+	if err != nil {
+		t.Fatalf("Handle error: %v", err)
+	}
+
+	if len(audit.events) != 1 {
+		t.Fatalf("audit events: want 1, got %d", len(audit.events))
+	}
+	ae := audit.events[0]
+	if ae.Action != "interview_round_regenerated" {
+		t.Errorf("action: want %q, got %q", "interview_round_regenerated", ae.Action)
+	}
+	if ae.ResourceID != roundID {
+		t.Errorf("resource_id: want %v, got %v", roundID, ae.ResourceID)
+	}
+	if ae.ActorUserID != actorID {
+		t.Errorf("actor_user_id: want %v, got %v", actorID, ae.ActorUserID)
 	}
 }
 
@@ -154,7 +186,7 @@ func TestRegenerate_TenantScoped(t *testing.T) {
 	scopedRepo := newFakeTenantScopedProcessRepo()
 	_, roundID2 := seedProcessForTenantScopedRepo(t, scopedRepo, tenantA)
 
-	h := commands.NewRegenerateRoundQuestionsHandler(scopedRepo)
+	h := commands.NewRegenerateRoundQuestionsHandler(scopedRepo, &captureAuditWriter{})
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
 		TenantID: tenantB,  // wrong tenant
 		RoundID:  roundID2, // round belongs to tenantA

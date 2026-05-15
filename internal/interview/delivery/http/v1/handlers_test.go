@@ -270,7 +270,7 @@ func newHandler(t *testing.T) (*v1.InterviewHandler, *fakeProcessRepo, *fakeTemp
 	markSkipped := commands.NewMarkRoundSkippedHandler(processes, audit)
 	completeProcess := commands.NewCompleteProcessHandler(processes, audit)
 	cancelProcess := commands.NewCancelProcessHandler(processes, audit)
-	regenerate := commands.NewRegenerateRoundQuestionsHandler(processes)
+	regenerate := commands.NewRegenerateRoundQuestionsHandler(processes, audit)
 
 	getProcess := queries.NewGetInterviewProcessHandler(processes, feedback, audit)
 	listProcesses := queries.NewListInterviewProcessesHandler(processes)

@@ -95,3 +95,27 @@ func TestCandidateReader_NotFound(t *testing.T) {
 	_, err = reader.GetProfileForQuestions(context.Background(), tenant, uuid.New())
 	assert.ErrorIs(t, err, services.ErrCandidateNotFound)
 }
+
+func TestCandidateReader_HandlesNullLocationAndHeadline(t *testing.T) {
+	pool := newPool(t)
+	reader := clients.NewPostgresCandidateReader(pool)
+
+	candidateID := uuid.New()
+	tenantID := uuid.New()
+	tenant, err := shared.ParseTenantID(tenantID.String())
+	require.NoError(t, err)
+
+	_, err = pool.Exec(context.Background(), `
+		INSERT INTO candidates (id, tenant_id, content_hash, full_name_enc, email_enc, phone_enc,
+		                         location, headline, parsed_profile, profile_schema, source,
+		                         created_at, updated_at)
+		VALUES ($1, $2, $3, 'enc:fn', 'enc:em', 'enc:ph',
+		        NULL, NULL, $4::jsonb, 1, 'manual_upload', now(), now())
+	`, candidateID, tenant.String(), uuidHex(t), `{"skills":[]}`)
+	require.NoError(t, err)
+
+	profile, err := reader.GetProfileForQuestions(context.Background(), tenant, candidateID)
+	require.NoError(t, err)
+	assert.Equal(t, "", profile.Headline)
+	assert.Equal(t, "", profile.Location)
+}

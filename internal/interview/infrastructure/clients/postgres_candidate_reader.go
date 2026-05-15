@@ -2,6 +2,7 @@ package clients
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,8 +60,8 @@ type certificationJSON struct {
 
 func (r *PostgresCandidateReader) GetProfileForQuestions(ctx context.Context, tenant shared.TenantID, candidateID uuid.UUID) (services.CandidateProfile, error) {
 	var (
-		headline string
-		location string
+		headline sql.NullString
+		location sql.NullString
 		schema   int
 		payload  []byte
 	)
@@ -118,8 +119,8 @@ func (r *PostgresCandidateReader) GetProfileForQuestions(ctx context.Context, te
 	}
 	return services.CandidateProfile{
 		ID:             candidateID,
-		Headline:       headline,
-		Location:       location,
+		Headline:       headline.String,
+		Location:       location.String,
 		Skills:         skillNames,
 		Experiences:    exps,
 		Education:      edus,

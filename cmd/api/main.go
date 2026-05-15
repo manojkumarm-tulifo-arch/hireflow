@@ -364,7 +364,7 @@ func main() {
 	generateRoundQuestions := interviewcommands.NewGenerateRoundQuestionsHandler(
 		interviewProcessRepo, interviewIntentReader, interviewCandidateReader, interviewGenerator,
 	)
-	regenerateRoundQuestions := interviewcommands.NewRegenerateRoundQuestionsHandler(interviewProcessRepo)
+	regenerateRoundQuestions := interviewcommands.NewRegenerateRoundQuestionsHandler(interviewProcessRepo, auditWriter)
 	recordFeedback := interviewcommands.NewRecordFeedbackHandler(interviewFeedbackRepo, interviewProcessRepo, auditWriter, interviewOutboxAppender)
 	markRoundCompleted := interviewcommands.NewMarkRoundCompletedHandler(interviewProcessRepo, auditWriter)
 	markRoundSkipped := interviewcommands.NewMarkRoundSkippedHandler(interviewProcessRepo, auditWriter)
