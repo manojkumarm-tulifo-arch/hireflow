@@ -24,7 +24,7 @@ func TestCandidateReader_ReadsProfile(t *testing.T) {
 	tenant, err := shared.ParseTenantID(tenantID.String())
 	require.NoError(t, err)
 
-	parsedProfile := `{"skills":["Go","Kafka"],"experiences":[{"title":"Staff Engineer","company":"Razorpay","duration":"2020-2025","summary":"Led ingestion platform."}],"education":[{"degree":"BS","field":"CS","institution":"IIT Bombay","year":"2018"}],"certifications":["AWS SA Pro"]}`
+	parsedProfile := `{"schema_version":1,"skills":[{"name":"Go"},{"name":"Kafka","years":3}],"experiences":[{"id":"exp-1","title":"Staff Engineer","company":"Razorpay","start":"2020-01","end":"2025-01","description":"Led ingestion platform."}],"education":[{"degree":"BS","field":"CS","institution":"IIT Bombay","end":"2018"}],"certifications":[{"name":"AWS SA Pro","issuer":"Amazon"}]}`
 	_, err = pool.Exec(context.Background(), `
 		INSERT INTO candidates (id, tenant_id, content_hash, full_name_enc, email_enc, phone_enc, location, headline, parsed_profile, profile_schema, source, created_at, updated_at)
 		VALUES ($1, $2, $3, 'enc:fn', 'enc:em', 'enc:ph', $4, $5, $6, 1, 'manual_upload', now(), now())
@@ -46,7 +46,7 @@ func TestCandidateReader_ReadsProfile(t *testing.T) {
 	require.Len(t, profile.Experiences, 1)
 	assert.Equal(t, "Staff Engineer", profile.Experiences[0].Title)
 	assert.Equal(t, "Razorpay", profile.Experiences[0].Company)
-	assert.Equal(t, "2020-2025", profile.Experiences[0].Duration)
+	assert.Equal(t, "2020-01 - 2025-01", profile.Experiences[0].Duration)
 	assert.Equal(t, "Led ingestion platform.", profile.Experiences[0].Summary)
 
 	require.Len(t, profile.Education, 1)
@@ -72,7 +72,7 @@ func TestCandidateReader_TenantScoped(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert candidate under tenantA.
-	parsedProfile := `{"skills":["Python"],"experiences":[],"education":[],"certifications":[]}`
+	parsedProfile := `{"schema_version":1,"skills":[{"name":"Python"}],"experiences":[],"education":[],"certifications":[]}`
 	_, err = pool.Exec(context.Background(), `
 		INSERT INTO candidates (id, tenant_id, content_hash, full_name_enc, email_enc, phone_enc, location, headline, parsed_profile, profile_schema, source, created_at, updated_at)
 		VALUES ($1, $2, $3, 'enc:fn', 'enc:em', 'enc:ph', 'Mumbai', 'Backend Dev', $4, 1, 'manual_upload', now(), now())

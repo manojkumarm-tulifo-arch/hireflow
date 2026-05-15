@@ -54,31 +54,6 @@ import (
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
 )
 
-// stubCandidateReader is a test double for the interview CandidateReader.
-// It returns a fixed profile, bypassing the cross-context DB read. This
-// keeps the e2e test deterministic and avoids dependency on the exact JSONB
-// schema stored by the sourcing parser.
-type stubCandidateReader struct{}
-
-func (stubCandidateReader) GetProfileForQuestions(
-	_ context.Context, _ shared.TenantID, candidateID uuid.UUID,
-) (interviewservices.CandidateProfile, error) {
-	return interviewservices.CandidateProfile{
-		ID:       candidateID,
-		Headline: "Senior Backend Engineer (test)",
-		Location: "Bangalore",
-		Skills:   []string{"Go", "Distributed Systems", "Postgres"},
-		Experiences: []interviewservices.Experience{
-			{Title: "Senior Backend", Company: "Razorpay", Duration: "5y", Summary: "Led payments infra"},
-		},
-		Education: []interviewservices.EducationEntry{
-			{Degree: "B.Tech", Field: "CS", Institution: "IIT Bombay", Year: "2018"},
-		},
-		Certifications:  []string{},
-		SchemaVersion: 1,
-	}, nil
-}
-
 // stubGenerator is a test double for the interview QuestionGenerator. It
 // returns a fixed canned question list (or an error if err is set).
 type stubGenerator struct {
@@ -223,10 +198,7 @@ func TestInterviewSlice1_E2E(t *testing.T) {
 	feedbackRepo := interviewpersist.NewPostgresFeedbackRepository(pool)
 
 	interviewIntentReader := interviewclients.NewPostgresIntentReader(pool)
-	// Use a stub CandidateReader to avoid schema mismatch between sourcing's
-	// ParsedSkill objects and the interview reader's expected []string shape.
-	// The real PostgresCandidateReader is exercised in its own integration test.
-	interviewCandidateReader := stubCandidateReader{}
+	interviewCandidateReader := interviewclients.NewPostgresCandidateReader(pool)
 
 	gen := stubGenerator{questions: cannedQuestions()}
 	outboxAppender := interviewmsg.NewPostgresOutboxAppender(pool)
