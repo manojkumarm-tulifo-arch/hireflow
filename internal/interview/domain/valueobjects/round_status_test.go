@@ -56,9 +56,9 @@ func TestRoundStatus_CanTransitionTo(t *testing.T) {
 	//   GenerationFailed -> Pending, Skipped
 	// Everything else is false (including terminals and self-transitions).
 
-	P  := vo.RoundStatusPending
+	P := vo.RoundStatusPending
 	QR := vo.RoundStatusQuestionsReady
-	C  := vo.RoundStatusCompleted
+	C := vo.RoundStatusCompleted
 	SK := vo.RoundStatusSkipped
 	GF := vo.RoundStatusGenerationFailed
 

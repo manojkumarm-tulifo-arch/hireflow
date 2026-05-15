@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/interview/application/queries"
 	"github.com/hustle/hireflow/internal/interview/domain/entities"
 	vo "github.com/hustle/hireflow/internal/interview/domain/valueobjects"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // ---------------------------------------------------------------------------

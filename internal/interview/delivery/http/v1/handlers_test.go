@@ -147,8 +147,8 @@ func (r *fakeTemplateRepo) FindByIntent(_ context.Context, _ shared.TenantID, in
 
 // fakeFeedbackRepo is an in-memory FeedbackRepository.
 type fakeFeedbackRepo struct {
-	mu       sync.Mutex
-	rows     []repositories.FeedbackRow
+	mu        sync.Mutex
+	rows      []repositories.FeedbackRow
 	appendErr error
 }
 

@@ -10,21 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/interview/domain/events"
 	"github.com/hustle/hireflow/internal/interview/infrastructure/messaging"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // recordingBus captures Publish calls from BusPublisher.
 type recordingBus struct {
-	mu     sync.Mutex
-	calls  []struct{ name string; event any }
+	mu    sync.Mutex
+	calls []struct {
+		name  string
+		event any
+	}
 }
 
 func (b *recordingBus) Publish(_ context.Context, name string, event any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.calls = append(b.calls, struct{ name string; event any }{name, event})
+	b.calls = append(b.calls, struct {
+		name  string
+		event any
+	}{name, event})
 	return nil
 }
 

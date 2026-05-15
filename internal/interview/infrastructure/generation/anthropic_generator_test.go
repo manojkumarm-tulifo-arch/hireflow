@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sharedanthropic "github.com/hustle/hireflow/internal/shared/infrastructure/llm/anthropic"
 	"github.com/hustle/hireflow/internal/interview/domain/services"
 	vo "github.com/hustle/hireflow/internal/interview/domain/valueobjects"
 	"github.com/hustle/hireflow/internal/interview/infrastructure/generation"
+	sharedanthropic "github.com/hustle/hireflow/internal/shared/infrastructure/llm/anthropic"
 )
 
 // generatorRoundTripper substitutes a canned HTTP response for Anthropic SDK

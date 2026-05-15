@@ -156,8 +156,8 @@ func TestRegenerate_TenantScoped(t *testing.T) {
 
 	h := commands.NewRegenerateRoundQuestionsHandler(scopedRepo)
 	err := h.Handle(context.Background(), commands.RegenerateRoundQuestionsInput{
-		TenantID: tenantB,   // wrong tenant
-		RoundID:  roundID2,  // round belongs to tenantA
+		TenantID: tenantB,  // wrong tenant
+		RoundID:  roundID2, // round belongs to tenantA
 	})
 	if !errors.Is(err, entities.ErrRoundNotFound) {
 		t.Errorf("tenantB should not find tenantA's round; want ErrRoundNotFound, got: %v", err)

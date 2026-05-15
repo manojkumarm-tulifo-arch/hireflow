@@ -103,9 +103,9 @@ func (r *fakeProcessRepo) ClaimNextPendingRound(_ context.Context) (*entities.In
 
 // fakeTemplateRepo is an in-memory implementation of LoopTemplateRepository.
 type fakeTemplateRepo struct {
-	mu        sync.Mutex
-	byIntent  map[uuid.UUID]*entities.LoopTemplate
-	findErr   error // if set, FindByIntent returns this error
+	mu       sync.Mutex
+	byIntent map[uuid.UUID]*entities.LoopTemplate
+	findErr  error // if set, FindByIntent returns this error
 }
 
 func newFakeTemplateRepo() *fakeTemplateRepo {

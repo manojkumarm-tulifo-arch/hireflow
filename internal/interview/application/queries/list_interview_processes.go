@@ -5,9 +5,9 @@ import (
 
 	"github.com/google/uuid"
 
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/interview/application/dto"
 	"github.com/hustle/hireflow/internal/interview/domain/repositories"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // ListInterviewProcessesHandler returns processes for an intent, optionally

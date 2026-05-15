@@ -9,11 +9,11 @@ func TestDecideRetry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		kind           FailureKind
-		attempt        int
-		wantAction     RetryAction
-		wantBackoff    time.Duration
+		name        string
+		kind        FailureKind
+		attempt     int
+		wantAction  RetryAction
+		wantBackoff time.Duration
 	}{
 		// llm_auth: abort immediately regardless of attempt
 		{

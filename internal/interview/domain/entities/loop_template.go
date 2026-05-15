@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	vo "github.com/hustle/hireflow/internal/interview/domain/valueobjects"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 // TemplateRound describes one round position in a loop template.

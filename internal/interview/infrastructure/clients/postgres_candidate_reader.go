@@ -25,10 +25,10 @@ func NewPostgresCandidateReader(pool *pgxpool.Pool) *PostgresCandidateReader {
 }
 
 type profileJSON struct {
-	Skills         []candidateSkillJSON    `json:"skills"`
-	Experiences    []experienceJSON        `json:"experiences"`
-	Education      []educationJSON         `json:"education"`
-	Certifications []certificationJSON     `json:"certifications"`
+	Skills         []candidateSkillJSON `json:"skills"`
+	Experiences    []experienceJSON     `json:"experiences"`
+	Education      []educationJSON      `json:"education"`
+	Certifications []certificationJSON  `json:"certifications"`
 }
 
 type candidateSkillJSON struct {

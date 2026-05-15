@@ -48,8 +48,8 @@ import (
 	sourcingpersist "github.com/hustle/hireflow/internal/sourcing/infrastructure/persistence"
 	sourcingscan "github.com/hustle/hireflow/internal/sourcing/infrastructure/scanning"
 	sourcingscoring "github.com/hustle/hireflow/internal/sourcing/infrastructure/scoring"
-	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingstorage "github.com/hustle/hireflow/internal/sourcing/infrastructure/storage"
+	sourcingsubs "github.com/hustle/hireflow/internal/sourcing/infrastructure/subscribers"
 	sourcingtext "github.com/hustle/hireflow/internal/sourcing/infrastructure/text"
 	sourcingworker "github.com/hustle/hireflow/internal/sourcing/infrastructure/worker"
 )
@@ -235,11 +235,11 @@ func TestInterviewSlice1_E2E(t *testing.T) {
 
 	// ── HTTP routers ──────────────────────────────────────────────────────────
 	sourcingHandler := sourcinghttp.NewSourcingHandler(sourcinghttp.SourcingHandlerDeps{
-		Upload:         uploadH,
-		Status:         statusH,
+		Upload:           uploadH,
+		Status:           statusH,
 		ListApplications: listAppH,
-		Transition:     transitionAppH,
-		Logger:         logger,
+		Transition:       transitionAppH,
+		Logger:           logger,
 	})
 	interviewHandler := interviewhttp.NewInterviewHandler(interviewhttp.InterviewHandlerDeps{
 		UpsertTemplate:           interviewcommands.NewUpsertLoopTemplateHandler(templateRepo, auditWriter),

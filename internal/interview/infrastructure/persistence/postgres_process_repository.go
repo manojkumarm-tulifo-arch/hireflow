@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hustle/hireflow/internal/interview/domain/entities"
 	"github.com/hustle/hireflow/internal/interview/domain/repositories"
 	shared "github.com/hustle/hireflow/internal/shared/domain"
-	"github.com/hustle/hireflow/internal/interview/domain/entities"
 )
 
 // Compile-time interface assertion.

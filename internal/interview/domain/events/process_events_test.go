@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/interview/domain/events"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 func mustParseTenant(t *testing.T) shared.TenantID {

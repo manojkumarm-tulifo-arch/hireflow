@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 
-	auditdomain "github.com/hustle/hireflow/internal/shared/audit/domain"
-	shared "github.com/hustle/hireflow/internal/shared/domain"
 	"github.com/hustle/hireflow/internal/interview/domain/entities"
 	"github.com/hustle/hireflow/internal/interview/domain/repositories"
+	auditdomain "github.com/hustle/hireflow/internal/shared/audit/domain"
+	shared "github.com/hustle/hireflow/internal/shared/domain"
 )
 
 type CancelProcessInput struct {

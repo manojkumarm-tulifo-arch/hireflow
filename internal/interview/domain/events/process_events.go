@@ -45,7 +45,9 @@ type InterviewQuestionsGenerated struct {
 	OccurredAt    time.Time       `json:"occurred_at"`
 }
 
-func (e InterviewQuestionsGenerated) EventName() string       { return "interview.InterviewQuestionsGenerated" }
+func (e InterviewQuestionsGenerated) EventName() string {
+	return "interview.InterviewQuestionsGenerated"
+}
 func (e InterviewQuestionsGenerated) AggregateID() uuid.UUID  { return e.RoundID }
 func (e InterviewQuestionsGenerated) Tenant() shared.TenantID { return e.TenantID }
 func (e InterviewQuestionsGenerated) At() time.Time           { return e.OccurredAt }
