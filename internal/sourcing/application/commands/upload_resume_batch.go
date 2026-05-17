@@ -132,9 +132,8 @@ func (h *UploadResumeBatchHandler) processZip(
 	parentID := uuid.New().String()
 	out := make([]dto.ItemOutcome, 0, 1+len(entries))
 	out = append(out, dto.ItemOutcome{
-		Filename:     filename,
-		Status:       "extracted_from_zip",
-		ParentItemID: &parentID,
+		Filename: filename,
+		Status:   "extracted_from_zip",
 	})
 
 	for _, entry := range entries {

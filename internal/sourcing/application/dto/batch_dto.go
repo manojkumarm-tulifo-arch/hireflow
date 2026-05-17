@@ -42,7 +42,7 @@ type BatchUploadInput struct {
 type ItemOutcome struct {
 	Filename       string
 	UploadID       *uuid.UUID // populated on queued or deduplicated
-	Status         string     // "queued" | "deduplicated" | "duplicate_in_intent" | "extracted_from_zip"
+	Status         string     // "queued" | "duplicate_in_intent" | "extracted_from_zip"
 	CandidateID    *uuid.UUID // populated on deduplicated (slice 1: always nil, slice 2+ sets it)
 	Error          *ItemError // populated on rejection
 	ParentFilename *string    `json:"parent_filename,omitempty"` // set on child entries extracted from a ZIP

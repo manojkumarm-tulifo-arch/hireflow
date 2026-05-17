@@ -316,14 +316,19 @@ func TestUploadBatch_ZipFanOut_QueuesEachEntry(t *testing.T) {
 	parent := out.Items[0]
 	assert.Equal(t, "batch.zip", parent.Filename)
 	assert.Equal(t, "extracted_from_zip", parent.Status)
-	require.NotNil(t, parent.ParentItemID, "parent should have its own ID set")
+	assert.Nil(t, parent.ParentItemID, "parent has no parent")
 
-	for _, child := range out.Items[1:] {
+	var parentID *string
+	for i, child := range out.Items[1:] {
 		assert.Equal(t, "queued", child.Status, "child %s should be queued", child.Filename)
 		require.NotNil(t, child.ParentFilename)
 		assert.Equal(t, "batch.zip", *child.ParentFilename)
 		require.NotNil(t, child.ParentItemID)
-		assert.Equal(t, *parent.ParentItemID, *child.ParentItemID)
+		if i == 0 {
+			parentID = child.ParentItemID
+		} else {
+			assert.Equal(t, *parentID, *child.ParentItemID, "all children should share same parent ID")
+		}
 	}
 
 	assert.Len(t, repo.saved, 2)
@@ -432,8 +437,6 @@ func TestUploadBatch_ZipWithDuplicate_PartialOutcomes(t *testing.T) {
 	assert.Equal(t, "batch.zip", *alice.ParentFilename)
 	require.NotNil(t, bharat.ParentFilename)
 	assert.Equal(t, "batch.zip", *bharat.ParentFilename)
-
-	_ = parent
 }
 
 // TestUploadBatch_ZipRejection_NoChildren verifies that a ZIP exceeding
