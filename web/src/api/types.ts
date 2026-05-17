@@ -170,3 +170,103 @@ export interface Envelope<T> {
   data?: T;
   error?: { code: string; message: string };
 }
+
+// ============================================================================
+// Sourcing context — slice 5
+// ============================================================================
+
+export type BatchUploadOutcomeStatus =
+  | 'queued'
+  | 'deduplicated'           // legacy; kept for old callers
+  | 'duplicate_in_intent'    // new in slice 5
+  | 'extracted_from_zip'     // new in slice 5 — ZIP parent marker
+  | ''                       // empty when item rejected (see `error`)
+
+export interface BatchUploadOutcome {
+  filename: string
+  status: BatchUploadOutcomeStatus
+  upload_id?: string
+  candidate_id?: string
+  parent_filename?: string
+  parent_item_id?: string
+  error?: { code: string; message: string; detail?: Record<string, unknown> }
+}
+
+export interface BatchUploadResponse {
+  batch_id: string
+  items: BatchUploadOutcome[]
+}
+
+export interface BatchStatusItem {
+  upload_id: string
+  filename: string
+  status: 'Pending' | 'Scanning' | 'Extracting' | 'Extracted' | 'Parsing' | 'Parsed' | 'Failed' | 'Quarantined'
+  attempt: number
+  last_error: string
+}
+
+export interface BatchStatusResponse {
+  batch_id: string
+  intent_id: string
+  summary: {
+    total: number
+    in_flight: number
+    extracted: number
+    failed: number
+    quarantined: number
+  }
+  items: BatchStatusItem[]
+}
+
+export type ApplicationStatus =
+  | 'New'
+  | 'Scored'
+  | 'Excluded'
+  | 'EmbedFailed'
+  | 'JudgeFailed'
+  | 'Stale'
+  | 'Shortlisted'
+  | 'Interviewing'
+  | 'Rejected'
+  | 'Hired'
+
+export interface SkillSummary {
+  name: string
+  years?: number
+}
+
+export interface CandidateSummary {
+  full_name: string
+  headline: string
+  location: string
+  top_skills: SkillSummary[]
+  judge_summary: string
+}
+
+export interface Application {
+  id: string
+  candidate_id: string
+  intent_id: string
+  status: ApplicationStatus
+  overall_score: number | null
+  score_band: 'strong' | 'moderate' | 'weak' | null
+  candidate: CandidateSummary
+  created_at: string
+  updated_at: string
+}
+
+export interface ApplicationListResponse {
+  applications: Application[]
+  total: number
+}
+
+export interface CandidateDetail {
+  id: string
+  content_hash: string
+  personal: { full_name: string; email: string; phone: string }
+  location: string
+  headline: string
+  profile: Record<string, unknown>
+  source: string
+  created_at: string
+}
