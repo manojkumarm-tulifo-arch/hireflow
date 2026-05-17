@@ -132,6 +132,12 @@ func (h *SourcingHandler) BatchUpload(w http.ResponseWriter, r *http.Request) {
 			item.CandidateID = it.CandidateID.String()
 		}
 		item.Status = it.Status
+		if it.ParentFilename != nil {
+			item.ParentFilename = *it.ParentFilename
+		}
+		if it.ParentItemID != nil {
+			item.ParentItemID = *it.ParentItemID
+		}
 		if it.Error != nil {
 			item.Error = &BatchItemError{
 				Code:    it.Error.Code,

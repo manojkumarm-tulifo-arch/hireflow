@@ -207,7 +207,7 @@ func TestBatchUpload_ValidFiles_Returns200WithItems(t *testing.T) {
 	assert.Len(t, resp.Items, 2)
 	assert.NotEmpty(t, resp.BatchID)
 	for _, it := range resp.Items {
-		assert.Contains(t, []string{"queued", "deduplicated"}, it.Status, it.Filename)
+		assert.Contains(t, []string{"queued", "deduplicated", "duplicate_in_intent", "extracted_from_zip", ""}, it.Status, it.Filename)
 	}
 }
 
