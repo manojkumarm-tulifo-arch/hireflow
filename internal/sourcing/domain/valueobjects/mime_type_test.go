@@ -22,7 +22,7 @@ func TestParseMimeType_AcceptsPDFandDOCX(t *testing.T) {
 }
 
 func TestParseMimeType_RejectsOthers(t *testing.T) {
-	for _, m := range []string{"image/png", "text/html", "application/zip", ""} {
+	for _, m := range []string{"image/png", "text/html", ""} {
 		_, err := vo.ParseMimeType(m)
 		assert.ErrorIs(t, err, vo.ErrUnsupportedMime, m)
 	}
@@ -39,4 +39,16 @@ func TestSniffMimeType_RejectsUnsupported(t *testing.T) {
 	pngBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	_, err := vo.SniffMimeType(pngBytes)
 	assert.ErrorIs(t, err, vo.ErrUnsupportedMime)
+}
+
+func TestParseMimeType_AcceptsODT(t *testing.T) {
+	m, err := vo.ParseMimeType("application/vnd.oasis.opendocument.text")
+	require.NoError(t, err)
+	assert.Equal(t, "application/vnd.oasis.opendocument.text", m.String())
+}
+
+func TestParseMimeType_AcceptsZIP(t *testing.T) {
+	m, err := vo.ParseMimeType("application/zip")
+	require.NoError(t, err)
+	assert.Equal(t, "application/zip", m.String())
 }
