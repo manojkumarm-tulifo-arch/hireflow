@@ -25,7 +25,7 @@ export function useShortlist(intentId: string) {
           if (!old) return old
           return {
             ...old,
-            applications: old.applications.map((app) =>
+            items: old.items.map((app) =>
               app.id === applicationId
                 ? { ...app, status: 'Shortlisted' as const }
                 : app,

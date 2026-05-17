@@ -20,7 +20,7 @@ export function useApplicationsList(intentId: string, status?: string) {
       return sourcingApi.listApplications(intentId, filter)
     },
     getNextPageParam: (lastPage, allPages) => {
-      const loaded = allPages.reduce((acc, p) => acc + p.applications.length, 0)
+      const loaded = allPages.reduce((acc, p) => acc + p.items.length, 0)
       if (loaded >= lastPage.total) return undefined
       return loaded
     },
@@ -28,7 +28,7 @@ export function useApplicationsList(intentId: string, status?: string) {
 }
 
 export function flattenApplications(
-  pages: Array<{ applications: Application[] }> | undefined,
+  pages: Array<{ items: Application[] }> | undefined,
 ): Application[] {
-  return pages?.flatMap((p) => p.applications) ?? []
+  return pages?.flatMap((p) => p.items) ?? []
 }

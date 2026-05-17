@@ -256,7 +256,7 @@ export interface Application {
 }
 
 export interface ApplicationListResponse {
-  applications: Application[]
+  items: Application[]
   total: number
 }
 

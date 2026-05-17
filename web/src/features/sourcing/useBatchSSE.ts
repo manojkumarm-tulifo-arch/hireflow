@@ -6,10 +6,12 @@ interface SSEHandler {
   onItemEvent?: (eventName: string, data: Record<string, unknown>) => void
 }
 
+const DEFAULT_HANDLER: SSEHandler = {}
+
 export function useBatchSSE(
   batchId: string | null,
   intentId: string,
-  handler: SSEHandler = {},
+  handler: SSEHandler = DEFAULT_HANDLER,
 ) {
   const qc = useQueryClient()
 
