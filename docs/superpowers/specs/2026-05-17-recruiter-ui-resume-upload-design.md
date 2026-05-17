@@ -29,7 +29,7 @@ Locked decisions from the 2026-05-17 brainstorm:
 | S-6 | Card layout for candidate rows, with band pill (Strong / Moderate / Weak). |
 | S-7 | Hybrid action affordance: primary Shortlist button + ⋮ overflow menu. |
 | S-8 | Sticky toolbar above candidate list: status filter chips with counts, search by name, sort, density toggle (compact-card / dense-row). |
-| S-9 | Bulk-select checkboxes; bulk-action bar ("Shortlist N" / "Reject N") appears when any selected. |
+| S-9 | Bulk-select checkboxes; bulk-action bar ("Shortlist N" / "Reject N") appears when any selected. Hire is per-candidate only — not bulkable. |
 | S-10 | Pagination via "Load more" (20 per page). Candidate detail page deferred to a follow-up slice; ⋮ menu's "View detail" is a placeholder link. |
 
 ## Architecture overview
@@ -70,7 +70,7 @@ Locked decisions from the 2026-05-17 brainstorm:
 
 When the recruiter starts an upload, a batch SSE connection opens. Per-file outcomes (queued, deduplicated-in-intent, rejected, ZIP-extracted children) render immediately from the HTTP response. As the pipeline progresses, SSE events update each row's status badge; when an application gets scored, the React Query cache for `['applications', intentID]` invalidates and the candidate appears in the list below.
 
-Selection state (checkboxes) is local to the page; reloading the page clears it. Filter, sort, and density-mode state are URL search params so the recruiter can share a deep link to a filtered view.
+Selection state (checkboxes) is local to the page; reloading the page clears it. Filter and sort state are URL search params so the recruiter can share a deep link to a filtered view. Density mode is a personal preference and persists per-browser in `localStorage`.
 
 ## Frontend implementation
 
@@ -185,11 +185,13 @@ Polling for the applications list otherwise only fires while an upload batch is 
 
 ### Routing
 
-No route changes. `/postings/:id` continues to serve the posting detail page; everything new is rendered inline. URL search params drive filter/sort/density:
+No route changes. `/postings/:id` continues to serve the posting detail page; everything new is rendered inline. URL search params drive filter + sort (shareable):
 
 ```
-/postings/abc123?status=Scored&sort=score_desc&density=compact
+/postings/abc123?status=Scored&sort=score_desc
 ```
+
+Density mode is intentionally NOT in the URL — it's a personal preference (localStorage), not a view to share.
 
 ## Backend implementation
 
