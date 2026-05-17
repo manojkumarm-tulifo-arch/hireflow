@@ -32,12 +32,21 @@ type BatchUploadInput struct {
 }
 
 // ItemOutcome is the per-file result of a batch upload.
+//
+// Status values:
+//   - "queued"              — accepted; the pipeline worker will process this file.
+//   - "deduplicated"        — deprecated alias kept for backward compatibility; prefer duplicate_in_intent.
+//   - "duplicate_in_intent" — the exact same content was already uploaded to THIS intent; skipped.
+//   - "extracted_from_zip"  — parent marker for a ZIP file; child entries follow in the Items slice.
+//   - ""                    — rejection; see Error for the structured reason.
 type ItemOutcome struct {
-	Filename    string
-	UploadID    *uuid.UUID // populated on queued or deduplicated
-	Status      string     // "queued" | "deduplicated"
-	CandidateID *uuid.UUID // populated on deduplicated (slice 1: always nil, slice 2+ sets it)
-	Error       *ItemError // populated on rejection
+	Filename       string
+	UploadID       *uuid.UUID // populated on queued or deduplicated
+	Status         string     // "queued" | "duplicate_in_intent" | "extracted_from_zip"
+	CandidateID    *uuid.UUID // populated on deduplicated (slice 1: always nil, slice 2+ sets it)
+	Error          *ItemError // populated on rejection
+	ParentFilename *string    `json:"parent_filename,omitempty"` // set on child entries extracted from a ZIP
+	ParentItemID   *string    `json:"parent_item_id,omitempty"`  // UUID string of the parent ZIP outcome
 }
 
 // ItemError carries a structured rejection reason.
@@ -99,6 +108,12 @@ type CandidatePersonal struct {
 	Phone    string `json:"phone,omitempty"`
 }
 
+// SkillSummary is a compact skill projection used in list responses.
+type SkillSummary struct {
+	Name  string  `json:"name"`
+	Years float64 `json:"years,omitempty"`
+}
+
 // ApplicationListItemDTO is one row in the GET /intents/{id}/applications response.
 // CandidateName is masked (e.g. "A***") — the raw decrypted name is never exposed here.
 type ApplicationListItemDTO struct {
@@ -115,6 +130,8 @@ type ApplicationListItemDTO struct {
 	LLMJudgment    json.RawMessage `json:"llm_judgment,omitempty"` // populated only for judged rows
 	ScoredAt       *time.Time      `json:"scored_at,omitempty"`
 	UpdatedAt      time.Time       `json:"updated_at"`
+	TopSkills      []SkillSummary  `json:"top_skills"`    // top 3 skills by years desc from parsed_profile
+	JudgeSummary   string          `json:"judge_summary"` // first sentence of llm_judgment.summary
 }
 
 // ApplicationListResponse is the full GET /intents/{id}/applications response.

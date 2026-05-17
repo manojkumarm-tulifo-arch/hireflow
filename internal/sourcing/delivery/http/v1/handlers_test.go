@@ -64,6 +64,9 @@ func (r *memRepo) FindByContentHash(_ context.Context, t shared.TenantID, h stri
 	}
 	return nil, repositories.ErrNotFound
 }
+func (r *memRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 
 func (r *memRepo) ClaimNextPending(context.Context) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
@@ -204,7 +207,7 @@ func TestBatchUpload_ValidFiles_Returns200WithItems(t *testing.T) {
 	assert.Len(t, resp.Items, 2)
 	assert.NotEmpty(t, resp.BatchID)
 	for _, it := range resp.Items {
-		assert.Contains(t, []string{"queued", "deduplicated"}, it.Status, it.Filename)
+		assert.Contains(t, []string{"queued", "deduplicated", "duplicate_in_intent", "extracted_from_zip", ""}, it.Status, it.Filename)
 	}
 }
 
@@ -1022,6 +1025,9 @@ func (r *retryRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UUID)
 	return nil, repositories.ErrNotFound
 }
 func (r *retryRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
+func (r *retryRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }
 func (r *retryRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {

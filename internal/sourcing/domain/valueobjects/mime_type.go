@@ -9,7 +9,7 @@ import (
 // ErrUnsupportedMime is returned when a MIME type isn't an accepted resume format.
 var ErrUnsupportedMime = errors.New("unsupported mime type")
 
-// MimeType is an accepted resume MIME type (PDF or DOCX/DOC).
+// MimeType is an accepted resume MIME type (PDF, DOC, DOCX, ODT, or ZIP).
 type MimeType struct {
 	value string
 }
@@ -19,6 +19,8 @@ var Allowed = map[string]struct{}{
 	"application/pdf": {},
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
 	"application/msword": {},
+	"application/vnd.oasis.opendocument.text": {},
+	"application/zip": {},
 }
 
 // ParseMimeType validates and returns a MimeType for the given string.

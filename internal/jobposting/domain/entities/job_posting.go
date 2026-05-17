@@ -15,8 +15,6 @@ import (
 var (
 	// ErrCannotPublishTerminal is returned when Publish is called on Closed/Archived.
 	ErrCannotPublishTerminal = errors.New("cannot publish a posting in a terminal state")
-	// ErrPublishNeedsChannels is returned when Publish is called with zero channels.
-	ErrPublishNeedsChannels = errors.New("publish requires at least one channel")
 	// ErrCannotCloseTerminal is returned when Close is called on already-terminal posting.
 	ErrCannotCloseTerminal = errors.New("cannot close a posting in a terminal state")
 	// ErrCannotAmendTerminal is returned when JD is amended on terminal posting.
@@ -109,12 +107,10 @@ func (p *JobPosting) CloseReason() string                   { return p.closeReas
 
 // Publish distributes the posting to the given channels and marks it Published.
 // Idempotent for re-publishes — adds new channels, leaves existing ones alone.
+// Channels may be empty (e.g., for resume-upload postings with no external distribution).
 func (p *JobPosting) Publish(channels []valueobjects.SourceChannel) error {
 	if p.status.IsTerminal() {
 		return ErrCannotPublishTerminal
-	}
-	if len(channels) == 0 {
-		return ErrPublishNeedsChannels
 	}
 
 	existing := make(map[valueobjects.SourceChannel]struct{}, len(p.sources))

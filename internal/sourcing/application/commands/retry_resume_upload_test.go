@@ -51,6 +51,9 @@ func (r *retryUploadRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid
 func (r *retryUploadRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }
+func (r *retryUploadRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 
 func (r *retryUploadRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound

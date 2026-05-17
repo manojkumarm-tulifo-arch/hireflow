@@ -35,6 +35,9 @@ func (r *oneShotRepo) FindByID(_ context.Context, _ shared.TenantID, _ uuid.UUID
 func (r *oneShotRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }
+func (r *oneShotRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 func (r *oneShotRepo) ListByBatch(_ context.Context, _ shared.TenantID, _ uuid.UUID) ([]*entities.ResumeUpload, error) {
 	return nil, nil
 }

@@ -89,26 +89,47 @@ func TestSave_PersistsRow_AndOutboxRow(t *testing.T) {
 	assert.Equal(t, 1, n)
 }
 
-func TestSave_DuplicateContentHashReturnsErrDuplicate(t *testing.T) {
+func TestSave_DuplicateContentHashSameIntentReturnsErrDuplicate(t *testing.T) {
 	pool := newPool(t)
 	repo := persistence.NewPostgresResumeUploadRepository(pool)
 	tenant := shared.NewTenantID()
+	intentID := uuid.New()
 
-	u1 := newUpload(t, tenant)
+	u1 := newUploadForIntent(t, tenant, intentID)
 	require.NoError(t, repo.Save(context.Background(), u1))
 
-	// Build a second upload with the same content_hash.
-	u2 := newUpload(t, tenant)
-	// Hack: assign u2 the same hash via constructor.
+	// Build a second upload with the same content_hash AND same intent — must be ErrDuplicate.
 	mime, _ := vo.ParseMimeType("application/pdf")
 	u2new, err := entities.NewResumeUpload(entities.UploadInput{
-		TenantID: tenant, IntentID: u2.IntentID(), BatchID: u2.BatchID(),
-		StorageKey: u2.StorageKey(), OriginalName: u2.OriginalName(),
+		TenantID: tenant, IntentID: intentID, BatchID: uuid.New(),
+		StorageKey: "k/" + uuid.New().String(), OriginalName: "alice.pdf",
 		MimeType: mime, SizeBytes: 1000, ContentHash: u1.ContentHash(),
 	})
 	require.NoError(t, err)
 	err = repo.Save(context.Background(), u2new)
 	assert.ErrorIs(t, err, repositories.ErrDuplicate)
+}
+
+// TestSave_DuplicateContentHashDifferentIntentAllowed verifies spec S-5:
+// the same resume uploaded to a different intent must succeed (not ErrDuplicate).
+func TestSave_DuplicateContentHashDifferentIntentAllowed(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresResumeUploadRepository(pool)
+	tenant := shared.NewTenantID()
+	intentA, intentB := uuid.New(), uuid.New()
+
+	u1 := newUploadForIntent(t, tenant, intentA)
+	require.NoError(t, repo.Save(context.Background(), u1))
+
+	// Same content_hash, different intent — must NOT return ErrDuplicate.
+	mime, _ := vo.ParseMimeType("application/pdf")
+	u2, err := entities.NewResumeUpload(entities.UploadInput{
+		TenantID: tenant, IntentID: intentB, BatchID: uuid.New(),
+		StorageKey: "k/" + uuid.New().String(), OriginalName: "alice.pdf",
+		MimeType: mime, SizeBytes: 1000, ContentHash: u1.ContentHash(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, repo.Save(context.Background(), u2), "same hash for different intent must be allowed")
 }
 
 func TestFindByContentHash_ReturnsExistingOrErrNotFound(t *testing.T) {
@@ -174,6 +195,69 @@ func TestBatchExistsForTenant_TenantScoped(t *testing.T) {
 	ok, err = repo.BatchExistsForTenant(ctx, tenantA, uuid.New())
 	require.NoError(t, err)
 	assert.False(t, ok, "non-existent batch must return false")
+}
+
+func newUploadForIntent(t *testing.T, tenant shared.TenantID, intentID uuid.UUID) *entities.ResumeUpload {
+	t.Helper()
+	h, err := vo.NewContentHash(uuidHex(t))
+	require.NoError(t, err)
+	mime, err := vo.ParseMimeType("application/pdf")
+	require.NoError(t, err)
+	u, err := entities.NewResumeUpload(entities.UploadInput{
+		TenantID:     tenant,
+		IntentID:     intentID,
+		BatchID:      uuid.New(),
+		StorageKey:   "k/" + uuid.New().String(),
+		OriginalName: "alice.pdf",
+		MimeType:     mime,
+		SizeBytes:    1000,
+		ContentHash:  h,
+	})
+	require.NoError(t, err)
+	return u
+}
+
+func TestFindByContentHashAndIntent_HitForSameIntent(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresResumeUploadRepository(pool)
+	tenant := shared.NewTenantID()
+	intentID := uuid.New()
+	upload := newUploadForIntent(t, tenant, intentID)
+	require.NoError(t, repo.Save(context.Background(), upload))
+
+	got, err := repo.FindByContentHashAndIntent(
+		context.Background(), tenant, intentID, upload.ContentHash().String(),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, upload.ID(), got.ID())
+}
+
+func TestFindByContentHashAndIntent_MissForDifferentIntent(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresResumeUploadRepository(pool)
+	tenant := shared.NewTenantID()
+	intentA, intentB := uuid.New(), uuid.New()
+	upload := newUploadForIntent(t, tenant, intentA)
+	require.NoError(t, repo.Save(context.Background(), upload))
+
+	_, err := repo.FindByContentHashAndIntent(
+		context.Background(), tenant, intentB, upload.ContentHash().String(),
+	)
+	require.ErrorIs(t, err, repositories.ErrNotFound)
+}
+
+func TestFindByContentHashAndIntent_MissForDifferentTenant(t *testing.T) {
+	pool := newPool(t)
+	repo := persistence.NewPostgresResumeUploadRepository(pool)
+	tenantA, tenantB := shared.NewTenantID(), shared.NewTenantID()
+	intentID := uuid.New()
+	upload := newUploadForIntent(t, tenantA, intentID)
+	require.NoError(t, repo.Save(context.Background(), upload))
+
+	_, err := repo.FindByContentHashAndIntent(
+		context.Background(), tenantB, intentID, upload.ContentHash().String(),
+	)
+	require.ErrorIs(t, err, repositories.ErrNotFound)
 }
 
 func TestClaimNextPending_ReturnsAndAdvances(t *testing.T) {

@@ -475,6 +475,135 @@ func TestListApplications_LLMJudgmentPopulated(t *testing.T) {
 	assert.Empty(t, scoredItem.LLMJudgment)
 }
 
+// TestListApplications_PopulatesTopSkillsFromParsedProfile verifies that the
+// handler returns exactly 3 skills, ordered by Years descending, from the
+// candidate's parsed_profile.skills slice.
+func TestListApplications_PopulatesTopSkillsFromParsedProfile(t *testing.T) {
+	tenant := newTenant()
+	intentID := uuid.New()
+
+	// Build a candidate with 5 skills, varying years.
+	hash, err := vo.NewContentHash("cccc3333333333333333333333333333333333333333333333333333cccc3333")
+	require.NoError(t, err)
+	profile := vo.NewParsedProfile()
+	profile.Skills = []vo.ParsedSkill{
+		{Name: "Python", Years: 3},
+		{Name: "Go", Years: 7},
+		{Name: "Kubernetes", Years: 2},
+		{Name: "Rust", Years: 5},
+		{Name: "SQL", Years: 1},
+	}
+	c, err := entities.NewCandidate(entities.NewCandidateInput{
+		TenantID:    tenant,
+		ContentHash: hash,
+		Profile:     profile,
+		Encrypted:   entities.EncryptedPersonal{FullName: "ENC:Skillful Sam", Email: "ENC:sam@example.com"},
+		Location:    "Remote",
+		Headline:    "Polyglot engineer",
+		Source:      "manual_upload",
+	})
+	require.NoError(t, err)
+	_ = c.PullEvents()
+
+	app := buildNewApp(t, tenant, c.ID(), intentID)
+	appRepo := &stubListApplicationRepo{apps: []*entities.Application{app}}
+	candRepo := &stubListCandidateRepo{byID: map[uuid.UUID]*entities.Candidate{c.ID(): c}}
+	h := newHandler(appRepo, candRepo)
+
+	resp, err := h.Handle(context.Background(), queries.ListApplicationsInput{
+		TenantID: tenant,
+		IntentID: intentID,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+	topSkills := resp.Items[0].TopSkills
+
+	// Must return exactly 3 skills.
+	require.Len(t, topSkills, 3)
+
+	// Must be ordered by Years descending: Go(7) > Rust(5) > Python(3).
+	assert.Equal(t, "Go", topSkills[0].Name)
+	assert.Equal(t, float64(7), topSkills[0].Years)
+	assert.Equal(t, "Rust", topSkills[1].Name)
+	assert.Equal(t, float64(5), topSkills[1].Years)
+	assert.Equal(t, "Python", topSkills[2].Name)
+	assert.Equal(t, float64(3), topSkills[2].Years)
+}
+
+// TestListApplications_PopulatesJudgeSummaryFirstSentence verifies that the
+// handler extracts only the first sentence of the LLM judgment summary.
+func TestListApplications_PopulatesJudgeSummaryFirstSentence(t *testing.T) {
+	tenant := newTenant()
+	intentID := uuid.New()
+
+	hash, err := vo.NewContentHash("dddd4444444444444444444444444444444444444444444444444444dddd4444")
+	require.NoError(t, err)
+	profile := vo.NewParsedProfile()
+	c, err := entities.NewCandidate(entities.NewCandidateInput{
+		TenantID:    tenant,
+		ContentHash: hash,
+		Profile:     profile,
+		Encrypted:   entities.EncryptedPersonal{FullName: "ENC:Jane Doe", Email: "ENC:jane@example.com"},
+		Location:    "London",
+		Headline:    "Backend engineer",
+		Source:      "manual_upload",
+	})
+	require.NoError(t, err)
+	_ = c.PullEvents()
+
+	// Build a judged app with a multi-sentence summary.
+	app := buildScoredApp(t, tenant, c.ID(), intentID, 0.9)
+	judgment := vo.LLMJudgment{
+		Score:         88,
+		Summary:       "Strong match. Built distributed systems at scale. Owns Go and Kubernetes.",
+		PromptVersion: "v1",
+	}
+	require.NoError(t, app.RecordLLMJudgment(judgment))
+
+	appRepo := &stubListApplicationRepo{apps: []*entities.Application{app}}
+	candRepo := &stubListCandidateRepo{byID: map[uuid.UUID]*entities.Candidate{c.ID(): c}}
+	h := newHandler(appRepo, candRepo)
+
+	resp, err := h.Handle(context.Background(), queries.ListApplicationsInput{
+		TenantID: tenant,
+		IntentID: intentID,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+
+	// Only the first sentence should be returned.
+	assert.Equal(t, "Strong match.", resp.Items[0].JudgeSummary)
+
+	// Ensure the remaining sentences are NOT included.
+	assert.NotContains(t, resp.Items[0].JudgeSummary, "Built distributed systems")
+}
+
+// TestListApplications_TopSkillsEmpty verifies that candidates with no skills
+// return an empty (non-nil) top_skills slice.
+func TestListApplications_TopSkillsEmpty(t *testing.T) {
+	tenant := newTenant()
+	intentID := uuid.New()
+
+	c := makeTestCandidate(t, tenant, "Zero Skills", "ENC:Zero Skills")
+	app := buildNewApp(t, tenant, c.ID(), intentID)
+
+	appRepo := &stubListApplicationRepo{apps: []*entities.Application{app}}
+	candRepo := &stubListCandidateRepo{byID: map[uuid.UUID]*entities.Candidate{c.ID(): c}}
+	h := newHandler(appRepo, candRepo)
+
+	resp, err := h.Handle(context.Background(), queries.ListApplicationsInput{
+		TenantID: tenant,
+		IntentID: intentID,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+	assert.Empty(t, resp.Items[0].TopSkills)
+	assert.Equal(t, "", resp.Items[0].JudgeSummary)
+}
+
 // ---------------------------------------------------------------------------
 // filterCapturingAppRepo — captures the ApplicationListFilter on ListByIntent.
 // ---------------------------------------------------------------------------

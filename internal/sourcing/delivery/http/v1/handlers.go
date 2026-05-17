@@ -132,6 +132,12 @@ func (h *SourcingHandler) BatchUpload(w http.ResponseWriter, r *http.Request) {
 			item.CandidateID = it.CandidateID.String()
 		}
 		item.Status = it.Status
+		if it.ParentFilename != nil {
+			item.ParentFilename = *it.ParentFilename
+		}
+		if it.ParentItemID != nil {
+			item.ParentItemID = *it.ParentItemID
+		}
 		if it.Error != nil {
 			item.Error = &BatchItemError{
 				Code:    it.Error.Code,
@@ -324,6 +330,12 @@ func (h *SourcingHandler) ListApplications(w http.ResponseWriter, r *http.Reques
 		},
 	}
 	for _, it := range out.Items {
+		// Convert application-layer SkillSummary to HTTP wire shape.
+		httpSkills := make([]ApplicationCandidateSkill, len(it.TopSkills))
+		for i, s := range it.TopSkills {
+			httpSkills[i] = ApplicationCandidateSkill{Name: s.Name, Years: s.Years}
+		}
+
 		item := ApplicationListItem{
 			ApplicationID: it.ApplicationID.String(),
 			Candidate: ApplicationCandidate{
@@ -331,6 +343,8 @@ func (h *SourcingHandler) ListApplications(w http.ResponseWriter, r *http.Reques
 				FullNameMasked: it.CandidateName,
 				Headline:       it.Headline,
 				Location:       it.Location,
+				TopSkills:      httpSkills,
+				JudgeSummary:   it.JudgeSummary,
 			},
 			Score: ApplicationScore{
 				Overall:        it.OverallScore,
