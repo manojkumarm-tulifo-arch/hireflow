@@ -111,6 +111,24 @@ export ANTHROPIC_MODEL="claude-opus-4-7" # optional, default claude-opus-4-7
 export ANTHROPIC_TIMEOUT="30s"           # optional, default 30s
 ```
 
+### Local dev without API keys: STUB_LLMS
+
+Set `STUB_LLMS=true` to swap every LLM + embedder adapter for deterministic stubs.
+Postgres, the eventbus, workers, audit log, and HTTP layer remain real — so you can
+exercise the full recruiter flow end-to-end without an Anthropic or Voyage account.
+
+```bash
+DATABASE_URL=postgres://hireflow:hireflow@localhost:5433/hireflow?sslmode=disable \
+JWT_ACCESS_SECRET=devsecret \
+SOURCING_PII_DEK=0000000000000000000000000000000000000000000000000000000000000000 \
+STUB_LLMS=true ./bin/api
+```
+
+The startup logs a loud WARN: `STUB_LLMS=true — all LLM + embedder calls are STUBBED. NEVER DEPLOY THIS TO PRODUCTION.`
+
+Useful for local UI development, demo walk-throughs, and contract testing.
+Don't ship with this flag set.
+
 #### Sourcing pipeline env vars
 
 | Variable                | Default            | Notes                                                     |

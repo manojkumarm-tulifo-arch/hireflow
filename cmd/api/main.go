@@ -32,6 +32,7 @@ import (
 	intentcommands "github.com/hustle/hireflow/internal/hiringintent/application/commands"
 	intentqueries "github.com/hustle/hireflow/internal/hiringintent/application/queries"
 	intenthttp "github.com/hustle/hireflow/internal/hiringintent/delivery/http/v1"
+	intentdomainsvc "github.com/hustle/hireflow/internal/hiringintent/domain/services"
 	intentllm "github.com/hustle/hireflow/internal/hiringintent/infrastructure/llm"
 	intentmsg "github.com/hustle/hireflow/internal/hiringintent/infrastructure/messaging"
 	intentpersist "github.com/hustle/hireflow/internal/hiringintent/infrastructure/persistence"
@@ -69,6 +70,7 @@ import (
 	interviewcommands "github.com/hustle/hireflow/internal/interview/application/commands"
 	interviewqueries "github.com/hustle/hireflow/internal/interview/application/queries"
 	interviewhttp "github.com/hustle/hireflow/internal/interview/delivery/http/v1"
+	interviewdomainsvc "github.com/hustle/hireflow/internal/interview/domain/services"
 	interviewclients "github.com/hustle/hireflow/internal/interview/infrastructure/clients"
 	interviewgen "github.com/hustle/hireflow/internal/interview/infrastructure/generation"
 	interviewmsg "github.com/hustle/hireflow/internal/interview/infrastructure/messaging"
@@ -79,6 +81,11 @@ import (
 
 func main() {
 	logger := newLogger()
+
+	stubMode := getenvBool("STUB_LLMS", false)
+	if stubMode {
+		logger.Warn().Msg("STUB_LLMS=true — all LLM + embedder calls are STUBBED. NEVER DEPLOY THIS TO PRODUCTION.")
+	}
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -120,15 +127,25 @@ func main() {
 	// stand-ins so IntentConfirmed → CreateFromIntent actually fires.
 	bus := eventbus.NewInMemory(logger)
 
-	// Anthropic-backed intent extractor. Fatal at startup if the API key is
-	// missing so misconfiguration surfaces immediately rather than 500ing on
-	// the first chat turn.
-	anthropicCfg, err := sharedanthropic.LoadConfig()
-	if err != nil {
-		logger.Fatal().Err(err).Msg("anthropic config")
+	// Anthropic client — skipped entirely in stub mode so no dial-out occurs.
+	var anthropicClient *sharedanthropic.Client
+	var anthropicCfg sharedanthropic.Config
+	if !stubMode {
+		var err2 error
+		anthropicCfg, err2 = sharedanthropic.LoadConfig()
+		if err2 != nil {
+			logger.Fatal().Err(err2).Msg("anthropic config")
+		}
+		anthropicClient = sharedanthropic.NewClient(anthropicCfg)
 	}
-	anthropicClient := sharedanthropic.NewClient(anthropicCfg)
-	intentExtractor := intentllm.NewAnthropicExtractor(anthropicClient)
+
+	// Intent extractor: use stub in stub mode, real Anthropic adapter otherwise.
+	var intentExtractor intentdomainsvc.IntentExtractor
+	if stubMode {
+		intentExtractor = intentllm.NewStub()
+	} else {
+		intentExtractor = intentllm.NewAnthropicExtractor(anthropicClient)
+	}
 
 	// Wire hiringintent context.
 	intentRepo := intentpersist.NewPostgresIntentRepository(pool)
@@ -191,8 +208,16 @@ func main() {
 	}
 
 	// Resume parser (Claude tool-use) and Claude vision OCR.
-	resumeParser := sourcingparsing.NewAnthropicParser(anthropicClient.SDK(), anthropicCfg.Model)
-	ocrExtractor := sourcingocr.NewClaudeVision(anthropicClient.SDK(), anthropicCfg.Model)
+	// In stub mode both adapters are swapped for deterministic stubs — no API call is made.
+	var resumeParser sourcingsvc.ResumeParser
+	var ocrExtractor sourcingsvc.OCRExtractor
+	if stubMode {
+		resumeParser = sourcingparsing.NewStub()
+		ocrExtractor = sourcingocr.NewStub()
+	} else {
+		resumeParser = sourcingparsing.NewAnthropicParser(anthropicClient.SDK(), anthropicCfg.Model)
+		ocrExtractor = sourcingocr.NewClaudeVision(anthropicClient.SDK(), anthropicCfg.Model)
+	}
 
 	// Audit writer — used by any command/query handler that must audit PII access.
 	auditWriter := auditinfra.NewPostgresAuditWriter(pool)
@@ -223,19 +248,26 @@ func main() {
 	statusHandler := sourcingqueries.NewGetBatchStatusHandler(sourcingRepo)
 
 	// Slice 3 — scoring pipeline.
-	voyageKey := os.Getenv("VOYAGE_API_KEY")
-	if voyageKey == "" {
-		logger.Fatal().Msg("VOYAGE_API_KEY is required")
-	}
-	voyageModel := getenv("VOYAGE_MODEL", "voyage-3")
 	judgeTopK := getenvInt("SOURCING_JUDGE_TOP_K", 20)
 	matchPoolSize := getenvInt("SOURCING_MATCH_POOL", 4)
 	judgePoolSize := getenvInt("SOURCING_JUDGE_POOL", 2)
 
-	voyageClient := sourcingembed.NewVoyageClient(voyageKey, voyageModel)
-	embedder := sourcingembed.NewVoyage(voyageClient)
+	var embedder sourcingsvc.Embedder
+	var llmJudge sourcingsvc.LLMJudge
+	if stubMode {
+		embedder = sourcingembed.NewStub()
+		llmJudge = sourcingjudging.NewStub()
+	} else {
+		voyageKey := os.Getenv("VOYAGE_API_KEY")
+		if voyageKey == "" {
+			logger.Fatal().Msg("VOYAGE_API_KEY is required")
+		}
+		voyageModel := getenv("VOYAGE_MODEL", "voyage-3")
+		voyageClient := sourcingembed.NewVoyageClient(voyageKey, voyageModel)
+		embedder = sourcingembed.NewVoyage(voyageClient)
+		llmJudge = sourcingjudging.NewAnthropicJudge(anthropicClient.SDK(), anthropicCfg.Model)
+	}
 	matchScorer := sourcingscoring.NewInProcMatchScorer()
-	llmJudge := sourcingjudging.NewAnthropicJudge(anthropicClient.SDK(), anthropicCfg.Model)
 	sourcingIntentReader := sourcingclients.NewPostgresIntentReader(pool)
 
 	applicationRepo := sourcingpersist.NewPostgresApplicationRepository(pool)
@@ -355,8 +387,13 @@ func main() {
 	interviewIntentReader := interviewclients.NewPostgresIntentReader(pool)
 	interviewCandidateReader := interviewclients.NewPostgresCandidateReader(pool)
 
-	// LLM-backed question generator. Reuses the existing Anthropic client.
-	interviewGenerator := interviewgen.NewAnthropicQuestionGenerator(anthropicClient.SDK(), anthropicCfg.Model)
+	// Question generator: stub in stub mode, real Anthropic adapter otherwise.
+	var interviewGenerator interviewdomainsvc.QuestionGenerator
+	if stubMode {
+		interviewGenerator = interviewgen.NewStub()
+	} else {
+		interviewGenerator = interviewgen.NewAnthropicQuestionGenerator(anthropicClient.SDK(), anthropicCfg.Model)
+	}
 
 	// Command + query handlers.
 	startInterviewProcess := interviewcommands.NewStartInterviewProcessHandler(interviewProcessRepo, interviewTemplateRepo)
@@ -583,6 +620,18 @@ func getenvDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func getenvBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 func requestLogger(logger zerolog.Logger) func(next http.Handler) http.Handler {
