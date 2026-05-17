@@ -1,16 +1,24 @@
 openapi: 3.1.0
 info:
-  title: hireflow — sourcing (slice 4)
-  version: "1.0.0-slice4"
+  title: hireflow — sourcing (slice 5)
+  version: "1.0.0-slice5"
   description: |
     Resume ingestion, candidate detail, ranked Application list, and recruiter
     dashboard endpoints. Slice 4 adds Application lifecycle actions
     (shortlist/reject/hire), retry for failed uploads, on-demand rescore,
-    GDPR erasure, and SSE live batch progress.
+    GDPR erasure, and SSE live batch progress. Slice 5 adds ZIP fan-out
+    (extract entries server-side, each surfaces as separate item) and
+    per-intent deduplication with new status markers.
 paths:
   /intents/{intent_id}/resumes:batch:
     post:
       summary: Upload a batch of resumes against an intent
+      description: |
+        Upload resumes (PDF, DOC, DOCX, ODT, or ZIP) for batch processing.
+        ZIP files are extracted server-side; each entry surfaces as a separate item.
+        Supported MIME types: application/pdf, application/msword,
+        application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+        application/vnd.oasis.opendocument.text, application/zip
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: intent_id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -181,6 +189,10 @@ components:
   schemas:
     BatchUploadResponse:
       type: object
+      description: |
+        Batch upload response with per-file outcomes. ZIP files are extracted
+        server-side; each entry surfaces as a separate item with parent_filename
+        and parent_item_id linking to the extracted_from_zip marker row.
       properties:
         batch_id: { type: string, format: uuid }
         items:
@@ -191,8 +203,10 @@ components:
       properties:
         filename: { type: string }
         upload_id: { type: string, format: uuid }
-        status: { type: string, enum: [queued, deduplicated] }
+        status: { type: string, enum: [queued, deduplicated, duplicate_in_intent, extracted_from_zip] }
         candidate_id: { type: string, format: uuid }
+        parent_filename: { type: string }
+        parent_item_id: { type: string, format: uuid }
         error: { $ref: '#/components/schemas/BatchItemError' }
     BatchItemError:
       type: object
@@ -268,6 +282,14 @@ components:
         full_name_masked: { type: string }
         headline: { type: string }
         location: { type: string }
+        top_skills:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              years: { type: number }
+        judge_summary: { type: string }
     ApplicationScore:
       type: object
       properties:
