@@ -11,6 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
+	github.com/pgvector/pgvector-go v0.3.0
 	github.com/rs/zerolog v1.33.0
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.50.0
@@ -28,7 +29,6 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
-	github.com/pgvector/pgvector-go v0.3.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

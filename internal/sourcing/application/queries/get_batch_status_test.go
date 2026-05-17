@@ -26,6 +26,9 @@ func (r *fakeListRepo) FindByID(context.Context, shared.TenantID, uuid.UUID) (*e
 func (r *fakeListRepo) FindByContentHash(context.Context, shared.TenantID, string) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }
+func (r *fakeListRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 func (r *fakeListRepo) ClaimNextPending(context.Context) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }

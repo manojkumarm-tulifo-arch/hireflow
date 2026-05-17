@@ -98,10 +98,11 @@ func TestEraseCascade_DeletesAllRelatedRows(t *testing.T) {
 	}
 
 	// --- seed 1 resume_uploads_dedup row (for contentHash1 only) ---
+	// intent_id is NOT NULL since migration 000010 — pass the same intentID used above.
 	_, err = pool.Exec(ctx, `
-		INSERT INTO resume_uploads_dedup (tenant_id, content_hash, upload_id, created_at)
-		VALUES ($1, $2, $3, $4)
-	`, tenant.String(), contentHash1, uuid.New(), time.Now())
+		INSERT INTO resume_uploads_dedup (tenant_id, intent_id, content_hash, upload_id, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, tenant.String(), intentID, contentHash1, uuid.New(), time.Now())
 	require.NoError(t, err)
 
 	// --- call EraseCascade ---

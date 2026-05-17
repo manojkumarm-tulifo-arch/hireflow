@@ -64,6 +64,9 @@ func (r *memRepo) FindByContentHash(_ context.Context, t shared.TenantID, h stri
 	}
 	return nil, repositories.ErrNotFound
 }
+func (r *memRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 
 func (r *memRepo) ClaimNextPending(context.Context) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
@@ -1022,6 +1025,9 @@ func (r *retryRepo) FindByID(_ context.Context, _ shared.TenantID, id uuid.UUID)
 	return nil, repositories.ErrNotFound
 }
 func (r *retryRepo) FindByContentHash(_ context.Context, _ shared.TenantID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
+func (r *retryRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }
 func (r *retryRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {

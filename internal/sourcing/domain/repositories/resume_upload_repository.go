@@ -19,15 +19,16 @@ import (
 // ErrNotFound is returned when an upload is not found.
 var ErrNotFound = errors.New("resume upload not found")
 
-// ErrDuplicate is returned when content_hash already exists for a tenant.
-// UploadResumeBatchHandler uses this to attach to the existing row.
+// ErrDuplicate is returned when (tenant_id, intent_id, content_hash) already
+// exists in the dedup table for a different upload_id. UploadResumeBatchHandler
+// uses this to attach to the existing row.
 var ErrDuplicate = errors.New("resume upload duplicate")
 
 // ResumeUploadRepository persists ResumeUpload aggregates.
 type ResumeUploadRepository interface {
 	// Save upserts the aggregate, drains its pending events into the outbox
-	// table in the same transaction. Honors the (tenant_id, content_hash)
-	// uniqueness — returns ErrDuplicate when violated.
+	// table in the same transaction. Honors the (tenant_id, intent_id, content_hash)
+	// uniqueness — returns ErrDuplicate when violated by a different upload_id.
 	Save(ctx context.Context, u *entities.ResumeUpload) error
 
 	// FindByID loads an upload by id. Tenant must match.
@@ -36,6 +37,11 @@ type ResumeUploadRepository interface {
 	// FindByContentHash returns the existing upload (any intent) matching
 	// (tenant, content_hash), or ErrNotFound.
 	FindByContentHash(ctx context.Context, tenant shared.TenantID, hash string) (*entities.ResumeUpload, error)
+
+	// FindByContentHashAndIntent looks up an existing upload by content hash
+	// scoped to a specific intent. Used by the upload command to detect
+	// same-intent duplicates. Returns ErrNotFound if no row matches.
+	FindByContentHashAndIntent(ctx context.Context, tenant shared.TenantID, intentID uuid.UUID, hash string) (*entities.ResumeUpload, error)
 
 	// ClaimNextPending claims one row in (Pending or any non-terminal status
 	// where next_attempt_at <= now) using FOR UPDATE SKIP LOCKED. Returns

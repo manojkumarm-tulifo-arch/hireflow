@@ -57,6 +57,9 @@ func (r *fakeRepo) FindByContentHash(_ context.Context, t shared.TenantID, h str
 	}
 	return u, nil
 }
+func (r *fakeRepo) FindByContentHashAndIntent(_ context.Context, _ shared.TenantID, _ uuid.UUID, _ string) (*entities.ResumeUpload, error) {
+	return nil, repositories.ErrNotFound
+}
 func (r *fakeRepo) ClaimNextPending(_ context.Context) (*entities.ResumeUpload, error) {
 	return nil, repositories.ErrNotFound
 }

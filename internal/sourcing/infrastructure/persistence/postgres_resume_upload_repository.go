@@ -70,25 +70,26 @@ func (r *PostgresResumeUploadRepository) Save(ctx context.Context, u *entities.R
 		return fmt.Errorf("upsert upload: %w", err)
 	}
 
-	// Enforce tenant-scoped content_hash uniqueness via the dedup table.
-	// First-write of a (tenant_id, content_hash) inserts; subsequent attempts
-	// from a different upload_id fire 23505 and return ErrDuplicate. Same
-	// upload_id (a status-update Save on an existing aggregate) is a no-op
-	// — the WHERE in DO NOTHING handles that.
+	// Enforce per-intent content_hash uniqueness via the dedup table.
+	// First-write of a (tenant_id, intent_id, content_hash) inserts; subsequent
+	// attempts from a different upload_id for the SAME intent fire the unique
+	// constraint and return ErrDuplicate. The same upload_id (a status-update
+	// Save on an existing aggregate) is a no-op — DO NOTHING handles that.
+	// The same hash uploaded to a DIFFERENT intent is allowed (per spec S-5).
 	_, err = tx.Exec(ctx, `
-		INSERT INTO resume_uploads_dedup (tenant_id, content_hash, upload_id, created_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (tenant_id, content_hash) DO NOTHING
-	`, row.tenantID, row.contentHash, row.id, row.createdAt)
+		INSERT INTO resume_uploads_dedup (tenant_id, intent_id, content_hash, upload_id, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (tenant_id, intent_id, content_hash) DO NOTHING
+	`, row.tenantID, row.intentID, row.contentHash, row.id, row.createdAt)
 	if err != nil {
 		return fmt.Errorf("insert dedup: %w", err)
 	}
-	// Verify our upload_id won — if another upload_id owns the dedup row,
-	// this is a duplicate.
+	// Verify our upload_id won — if another upload_id owns the dedup row for
+	// this (tenant, intent, hash) triple, this is a duplicate.
 	var owner uuid.UUID
 	err = tx.QueryRow(ctx,
-		`SELECT upload_id FROM resume_uploads_dedup WHERE tenant_id=$1 AND content_hash=$2`,
-		row.tenantID, row.contentHash,
+		`SELECT upload_id FROM resume_uploads_dedup WHERE tenant_id=$1 AND intent_id=$2 AND content_hash=$3`,
+		row.tenantID, row.intentID, row.contentHash,
 	).Scan(&owner)
 	if err != nil {
 		return fmt.Errorf("read dedup: %w", err)
@@ -130,6 +131,18 @@ func (r *PostgresResumeUploadRepository) FindByID(ctx context.Context, tenant sh
 // FindByContentHash — tenant-scoped lookup by content hash.
 func (r *PostgresResumeUploadRepository) FindByContentHash(ctx context.Context, tenant shared.TenantID, hash string) (*entities.ResumeUpload, error) {
 	row := r.pool.QueryRow(ctx, selectSQL+" WHERE tenant_id=$1 AND content_hash=$2", tenant.String(), hash)
+	return scanRow(row)
+}
+
+// FindByContentHashAndIntent — tenant + intent + content_hash lookup.
+// Used by the upload command for per-intent dedup detection.
+func (r *PostgresResumeUploadRepository) FindByContentHashAndIntent(
+	ctx context.Context, tenant shared.TenantID, intentID uuid.UUID, hash string,
+) (*entities.ResumeUpload, error) {
+	row := r.pool.QueryRow(ctx,
+		selectSQL+" WHERE tenant_id=$1 AND intent_id=$2 AND content_hash=$3",
+		tenant.String(), intentID, hash,
+	)
 	return scanRow(row)
 }
 
