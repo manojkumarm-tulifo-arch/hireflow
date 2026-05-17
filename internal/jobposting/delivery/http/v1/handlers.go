@@ -140,8 +140,6 @@ func (h *PostingHandler) respondDomainError(w http.ResponseWriter, err error) {
 		errors.Is(err, entities.ErrCannotCloseTerminal),
 		errors.Is(err, entities.ErrCannotAmendTerminal):
 		writeError(w, http.StatusConflict, "invalid_state_transition", err.Error())
-	case errors.Is(err, entities.ErrPublishNeedsChannels):
-		writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 	case errors.Is(err, valueobjects.ErrInvalidPostingID),
 		errors.Is(err, valueobjects.ErrInvalidPostingStatus),
 		errors.Is(err, valueobjects.ErrInvalidSourceChannel):

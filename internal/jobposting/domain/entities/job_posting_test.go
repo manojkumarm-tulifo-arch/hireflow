@@ -76,13 +76,20 @@ func TestPublish_DedupsExistingChannels(t *testing.T) {
 	assert.Len(t, p.Sources(), 2)
 }
 
-func TestPublish_RejectsEmptyChannelList(t *testing.T) {
+func TestPublish_AcceptsEmptyChannelList(t *testing.T) {
 	p := newPosting(t)
 	_ = p.PullEvents()
 
 	err := p.Publish(nil)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, entities.ErrPublishNeedsChannels))
+	require.NoError(t, err)
+
+	assert.Equal(t, valueobjects.StatusPublished, p.Status())
+	assert.NotNil(t, p.PublishedAt())
+	assert.Empty(t, p.Sources())
+
+	evs := p.PullEvents()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "jobposting.JobPostingPublished", evs[0].EventName())
 }
 
 func TestPublish_BlockedAfterClose(t *testing.T) {
