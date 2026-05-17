@@ -108,6 +108,12 @@ type CandidatePersonal struct {
 	Phone    string `json:"phone,omitempty"`
 }
 
+// SkillSummary is a compact skill projection used in list responses.
+type SkillSummary struct {
+	Name  string  `json:"name"`
+	Years float64 `json:"years,omitempty"`
+}
+
 // ApplicationListItemDTO is one row in the GET /intents/{id}/applications response.
 // CandidateName is masked (e.g. "A***") — the raw decrypted name is never exposed here.
 type ApplicationListItemDTO struct {
@@ -124,6 +130,8 @@ type ApplicationListItemDTO struct {
 	LLMJudgment    json.RawMessage `json:"llm_judgment,omitempty"` // populated only for judged rows
 	ScoredAt       *time.Time      `json:"scored_at,omitempty"`
 	UpdatedAt      time.Time       `json:"updated_at"`
+	TopSkills      []SkillSummary  `json:"top_skills"`    // top 3 skills by years desc from parsed_profile
+	JudgeSummary   string          `json:"judge_summary"` // first sentence of llm_judgment.summary
 }
 
 // ApplicationListResponse is the full GET /intents/{id}/applications response.

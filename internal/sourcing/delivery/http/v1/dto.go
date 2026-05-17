@@ -92,12 +92,20 @@ type ApplicationListItem struct {
 	ScoredAt      string               `json:"scored_at,omitempty"`
 }
 
+// ApplicationCandidateSkill is a compact skill entry in the list response.
+type ApplicationCandidateSkill struct {
+	Name  string  `json:"name"`
+	Years float64 `json:"years,omitempty"`
+}
+
 // ApplicationCandidate is the masked candidate projection in the list response.
 type ApplicationCandidate struct {
-	ID             string `json:"id"`
-	FullNameMasked string `json:"full_name_masked,omitempty"`
-	Headline       string `json:"headline,omitempty"`
-	Location       string `json:"location,omitempty"`
+	ID             string                      `json:"id"`
+	FullNameMasked string                      `json:"full_name_masked,omitempty"`
+	Headline       string                      `json:"headline,omitempty"`
+	Location       string                      `json:"location,omitempty"`
+	TopSkills      []ApplicationCandidateSkill `json:"top_skills"`    // top 3 skills by years desc
+	JudgeSummary   string                      `json:"judge_summary"` // first sentence of llm_judgment.summary
 }
 
 // ApplicationScore holds the scoring detail for one application row.

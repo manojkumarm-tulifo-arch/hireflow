@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -98,6 +100,15 @@ func (h *ListApplicationsHandler) Handle(ctx context.Context, in ListApplication
 			scoreBandStr = &s
 		}
 
+		// Top 3 skills by years desc from the candidate's parsed profile.
+		topSkills := buildTopSkills(cand.Profile())
+
+		// First sentence of llm_judgment.summary.
+		judgeSummary := ""
+		if j := app.LLMJudgment(); j != nil {
+			judgeSummary = firstSentence(j.Summary)
+		}
+
 		items = append(items, dto.ApplicationListItemDTO{
 			ApplicationID:  app.ID(),
 			CandidateID:    cand.ID(),
@@ -112,6 +123,8 @@ func (h *ListApplicationsHandler) Handle(ctx context.Context, in ListApplication
 			LLMJudgment:    llmJSON,
 			ScoredAt:       app.ScoredAt(),
 			UpdatedAt:      app.UpdatedAt(),
+			TopSkills:      topSkills,
+			JudgeSummary:   judgeSummary,
 		})
 
 		// Tally facets — only for rows where ScoreBand is non-nil (judged rows).
@@ -152,4 +165,40 @@ func maskName(name string) string {
 		return "***"
 	}
 	return string(r) + "***"
+}
+
+// buildTopSkills returns up to 3 skills from the profile, ordered by Years
+// descending. Skills with the same years preserve their original order.
+func buildTopSkills(profile vo.ParsedProfile) []dto.SkillSummary {
+	skills := make([]vo.ParsedSkill, len(profile.Skills))
+	copy(skills, profile.Skills)
+	sort.SliceStable(skills, func(i, j int) bool {
+		return skills[i].Years > skills[j].Years
+	})
+	top := make([]dto.SkillSummary, 0, 3)
+	for i, s := range skills {
+		if i >= 3 {
+			break
+		}
+		top = append(top, dto.SkillSummary{Name: s.Name, Years: s.Years})
+	}
+	return top
+}
+
+// firstSentence returns the first sentence of s. A sentence boundary is
+// defined as ". " (period + space) or a trailing "." with nothing after it.
+// If s is empty, "" is returned. If no sentence boundary is found, the full
+// string is returned.
+func firstSentence(s string) string {
+	if s == "" {
+		return ""
+	}
+	if idx := strings.Index(s, ". "); idx >= 0 {
+		return s[:idx+1]
+	}
+	// Trailing period with no following space (e.g. single-sentence summary).
+	if strings.HasSuffix(s, ".") {
+		return s
+	}
+	return s
 }
