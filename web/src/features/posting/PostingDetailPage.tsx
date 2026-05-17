@@ -1,23 +1,16 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Linkedin, Globe, Mail, Database, XCircle } from 'lucide-react';
+import { ArrowLeft, XCircle } from 'lucide-react';
 import { postingApi } from '@/api/posting';
-import type { SourceChannel } from '@/api/types';
 import { Button, Card, Spinner } from '@/components/ui/primitives';
 import { PostingStatusBadge } from '@/components/ui/StatusBadge';
-
-const CHANNELS: Array<{ id: SourceChannel; label: string; icon: typeof Linkedin }> = [
-  { id: 'LINKEDIN', label: 'LinkedIn', icon: Linkedin },
-  { id: 'CAREER_PAGE', label: 'Career Page', icon: Globe },
-  { id: 'EMAIL', label: 'Email Inbox', icon: Mail },
-  { id: 'INTERNAL_DB', label: 'Internal DB', icon: Database },
-];
+import { UploadCard } from '@/features/sourcing/UploadCard';
+import { CandidateListSection } from '@/features/sourcing/CandidateListSection';
 
 export function PostingDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<Set<SourceChannel>>(new Set());
   const [closeReason, setCloseReason] = useState('');
 
   const { data: posting, isLoading } = useQuery({
@@ -27,11 +20,10 @@ export function PostingDetailPage() {
   });
 
   const publishMutation = useMutation({
-    mutationFn: (channels: SourceChannel[]) => postingApi.publish(id, channels),
+    mutationFn: () => postingApi.publish(id, []),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['posting', id] });
       qc.invalidateQueries({ queryKey: ['postings'] });
-      setSelected(new Set());
     },
   });
 
@@ -47,13 +39,8 @@ export function PostingDetailPage() {
   if (!posting) return <div className="p-8">Not found.</div>;
 
   const isTerminal = posting.status === 'CLOSED' || posting.status === 'ARCHIVED';
-  const existingChannels = new Set(posting.sources.map((s) => s.channel));
-
-  const toggle = (c: SourceChannel) => {
-    const copy = new Set(selected);
-    if (copy.has(c)) copy.delete(c); else copy.add(c);
-    setSelected(copy);
-  };
+  const isDraft = posting.status === 'DRAFT';
+  const isActive = !isDraft && !isTerminal;
 
   return (
     <div className="px-8 py-6 max-w-3xl space-y-6">
@@ -79,67 +66,32 @@ export function PostingDetailPage() {
         )}
       </Card>
 
-      <Card className="p-6 space-y-4">
-        <h2 className="text-sm font-bold text-ink">Source Distribution</h2>
+      {isDraft && (
+        <Card className="p-6 space-y-4">
+          <h2 className="text-sm font-bold text-ink">Ready to start sourcing?</h2>
+          <p className="text-sm text-ink-sub">
+            Publish this posting to begin uploading resumes and tracking candidates.
+          </p>
+          <Button
+            onClick={() => publishMutation.mutate()}
+            disabled={publishMutation.isPending}
+            className="w-full"
+          >
+            {publishMutation.isPending ? <Spinner /> : null}
+            Publish Posting
+          </Button>
+          {publishMutation.isError && (
+            <p className="text-xs text-red-600">{(publishMutation.error as Error).message}</p>
+          )}
+        </Card>
+      )}
 
-        {posting.sources.length > 0 && (
-          <div className="space-y-1.5">
-            {posting.sources.map((s) => {
-              const Icon = CHANNELS.find((c) => c.id === s.channel)?.icon ?? Globe;
-              return (
-                <div key={s.channel} className="flex items-center justify-between px-3 py-2 rounded bg-line-soft">
-                  <div className="flex items-center gap-2">
-                    <Icon className="w-4 h-4 text-accent" />
-                    <span className="text-sm font-semibold">{s.channel}</span>
-                  </div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-ink-sub">{s.status}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {!isTerminal && (
-          <div className="space-y-3 pt-2 border-t border-line">
-            <p className="text-xs text-ink-sub">Add new channels to distribute to:</p>
-            <div className="grid grid-cols-2 gap-2">
-              {CHANNELS.map(({ id: c, label, icon: Icon }) => {
-                const already = existingChannels.has(c);
-                const isOn = selected.has(c);
-                return (
-                  <button
-                    key={c}
-                    disabled={already}
-                    onClick={() => toggle(c)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm font-semibold transition-colors ${
-                      already
-                        ? 'border-line bg-line-soft text-ink-mute cursor-not-allowed'
-                        : isOn
-                          ? 'border-accent bg-accent-soft text-accent'
-                          : 'border-line bg-white text-ink hover:border-accent'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                    {already && <span className="ml-auto text-[10px]">added</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <Button
-              onClick={() => publishMutation.mutate(Array.from(selected))}
-              disabled={selected.size === 0 || publishMutation.isPending}
-              className="w-full"
-            >
-              {publishMutation.isPending ? <Spinner /> : null}
-              Publish to {selected.size} channel{selected.size === 1 ? '' : 's'}
-            </Button>
-            {publishMutation.isError && (
-              <p className="text-xs text-red-600">{(publishMutation.error as Error).message}</p>
-            )}
-          </div>
-        )}
-      </Card>
+      {isActive && (
+        <>
+          <UploadCard intentId={posting.intent_id} />
+          <CandidateListSection intentId={posting.intent_id} />
+        </>
+      )}
 
       {!isTerminal && (
         <Card className="p-6 space-y-3">
