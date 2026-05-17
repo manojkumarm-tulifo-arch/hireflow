@@ -7,7 +7,8 @@ MIGRATE_AUTH      := migrate -path migrations/auth         -database "$(DATABASE
 MIGRATE_INTENT    := migrate -path migrations/hiringintent -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_hiringintent"
 MIGRATE_POSTING   := migrate -path migrations/jobposting   -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_jobposting"
 MIGRATE_SOURCING  := migrate -path migrations/sourcing     -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_sourcing"
-MIGRATE_SHARED    := migrate -path migrations/shared      -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_shared"
+MIGRATE_SHARED     := migrate -path migrations/shared      -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_shared"
+MIGRATE_INTERVIEW := migrate -path migrations/interview   -database "$(DATABASE_URL)&x-migrations-table=schema_migrations_interview"
 
 tidy:
 	go mod tidy
@@ -29,6 +30,9 @@ test-integration:
 	# doesn't race across the persistence / clients / tests packages.
 	go test ./internal/sourcing/infrastructure/persistence/... \
 	        ./internal/sourcing/infrastructure/clients/... \
+	        ./internal/interview/infrastructure/persistence/... \
+	        ./internal/interview/infrastructure/clients/... \
+	        ./internal/interview/infrastructure/messaging/... \
 	        ./tests/... \
 	        -race -count=1 -tags=integration -p 1
 
@@ -38,8 +42,10 @@ migrate-up:
 	$(MIGRATE_POSTING) up
 	$(MIGRATE_SOURCING) up
 	$(MIGRATE_SHARED) up
+	$(MIGRATE_INTERVIEW) up
 
 migrate-down:
+	$(MIGRATE_INTERVIEW) down 1
 	$(MIGRATE_SHARED) down 1
 	$(MIGRATE_SOURCING) down 1
 	$(MIGRATE_POSTING) down 1

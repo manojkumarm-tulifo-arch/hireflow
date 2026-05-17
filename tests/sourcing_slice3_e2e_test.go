@@ -83,7 +83,9 @@ func newPgvectorPool(t *testing.T) *pgxpool.Pool {
 	_, err = pool.Exec(context.Background(), `
 		TRUNCATE applications, hiring_intent_embeddings, judge_jobs,
 		         resume_uploads, resume_uploads_dedup, candidates,
-		         sourcing_outbox, hiring_intents, audit_log CASCADE`)
+		         sourcing_outbox, hiring_intents, audit_log,
+		         interview_processes, interview_rounds, interview_feedback,
+		         intent_loops, interview_outbox CASCADE`)
 	require.NoError(t, err)
 	return pool
 }

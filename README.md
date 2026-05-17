@@ -12,6 +12,7 @@ Three bounded contexts live; one stub. End-to-end recruiter flow works against r
 | `hiringintent` | Recruiter's intent to hire (role, signals, trust requirements). Source of truth for *why* and *what*. Includes Claude-backed conversational extraction. | **Live** |
 | `jobposting` | Published JD lifecycle, source distribution, versioning. Drafted automatically from `IntentConfirmed` via an in-process event bus. | **Live** |
 | `sourcing` | Resume ingestion + parsing + scoring + recruiter dashboard (shortlist/reject/hire) + live SSE updates + audit log + GDPR erasure (slices 1+2+3+4). | **Live** |
+| `interview` | Interview-process orchestration: subscribes to `ApplicationShortlisted`, creates loop processes from per-intent templates (or a sensible default), generates tailored questions per round via the existing Anthropic client, captures recruiter feedback. Slice 1 (foundation). | **Live (foundation)** |
 | `bgv` (cross-repo, in `candidate-bgv`) | Background-verification submissions. **FE lives here** under `web/src/features/bgv/`; BE runs on `:8081`. Recruiter views queue, opens submissions, downloads docs, reopens for fixes. | **Live (FE) / live (BE)** |
 
 ## Project layout
