@@ -50,18 +50,30 @@ func Middleware(v *Verifier) func(http.Handler) http.Handler {
 
 func extractBearer(r *http.Request) (string, error) {
 	header := r.Header.Get("Authorization")
-	if header == "" {
-		return "", ErrMissingToken
+	if header != "" {
+		const prefix = "Bearer "
+		if !strings.HasPrefix(header, prefix) {
+			return "", ErrMissingToken
+		}
+		token := strings.TrimSpace(header[len(prefix):])
+		if token == "" {
+			return "", ErrMissingToken
+		}
+		return token, nil
 	}
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return "", ErrMissingToken
+
+	// Fallback to query param for GET requests only (SSE EventSource compatibility).
+	// This allows browsers to pass the token as ?token=... since the EventSource API
+	// cannot set Authorization headers. Restrict to GET to prevent accidental credential
+	// leaks via URL on state-changing endpoints.
+	if r.Method == http.MethodGet {
+		token := strings.TrimSpace(r.URL.Query().Get("token"))
+		if token != "" {
+			return token, nil
+		}
 	}
-	token := strings.TrimSpace(header[len(prefix):])
-	if token == "" {
-		return "", ErrMissingToken
-	}
-	return token, nil
+
+	return "", ErrMissingToken
 }
 
 func writeAuthError(w http.ResponseWriter, code, message string) {

@@ -245,3 +245,88 @@ func TestMiddleware_AcceptsRecruiterSubjectKind(t *testing.T) {
 	assert.True(t, cap.called)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// TestMiddleware_QueryParamFallback_GETWithValidToken exercises the query param
+// fallback for GET requests (SSE EventSource compatibility).
+func TestMiddleware_QueryParamFallback_GETWithValidToken(t *testing.T) {
+	v := newTestVerifier(t)
+	token := signToken(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/?token="+token, nil)
+	// Explicitly no Authorization header
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.True(t, cap.called, "next handler should be invoked with valid query token")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, cap.err)
+	assert.False(t, cap.identity.TenantID.IsZero())
+	assert.False(t, cap.identity.RecruiterID.IsZero())
+}
+
+// TestMiddleware_QueryParamFallback_HeaderWins verifies that Authorization header
+// takes precedence over the query param fallback.
+func TestMiddleware_QueryParamFallback_HeaderWins(t *testing.T) {
+	v := newTestVerifier(t)
+	goodToken := signToken(t, nil)
+	badToken := signToken(t, func(c *auth.Claims) { c.TenantID = "" })
+
+	req := httptest.NewRequest(http.MethodGet, "/?token="+badToken, nil)
+	req.Header.Set("Authorization", "Bearer "+goodToken)
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.True(t, cap.called, "next handler should be invoked (header wins)")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, cap.err)
+}
+
+// TestMiddleware_QueryParamFallback_POSTIgnoresQueryParam ensures the query
+// param fallback is not applied to non-GET requests (prevents credential leaks).
+func TestMiddleware_QueryParamFallback_POSTIgnoresQueryParam(t *testing.T) {
+	v := newTestVerifier(t)
+	token := signToken(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/?token="+token, nil)
+	// Explicitly no Authorization header
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.False(t, cap.called, "next handler should NOT be invoked for POST with only query token")
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	errBlock, _ := body["error"].(map[string]any)
+	assert.Equal(t, "missing_token", errBlock["code"])
+}
+
+// TestMiddleware_QueryParamFallback_GETWithoutTokenFails ensures that a GET
+// request without Authorization header AND without query param still fails.
+func TestMiddleware_QueryParamFallback_GETWithoutTokenFails(t *testing.T) {
+	v := newTestVerifier(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// No Authorization header, no query param
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.False(t, cap.called)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	errBlock, _ := body["error"].(map[string]any)
+	assert.Equal(t, "missing_token", errBlock["code"])
+}
+
+// TestMiddleware_QueryParamFallback_EmptyQueryParamFails ensures that an
+// empty or whitespace-only query param does not authenticate the request.
+func TestMiddleware_QueryParamFallback_EmptyQueryParamFails(t *testing.T) {
+	v := newTestVerifier(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/?token=", nil)
+	// Empty query param
+	cap, rec := runRequest(t, auth.Middleware(v), req)
+
+	assert.False(t, cap.called)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	errBlock, _ := body["error"].(map[string]any)
+	assert.Equal(t, "missing_token", errBlock["code"])
+}
